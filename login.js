@@ -1,0 +1,197 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+
+const firebaseConfig = {
+  projectId: "rotas-cabun-app",
+  appId: "1:1017676204969:web:226223216f8dde86a752b8",
+  storageBucket: "rotas-cabun-app.firebasestorage.app",
+  apiKey: "AIzaSyCwFuaNuzw50bn9CV2RnP3xTx8TNcFr6D4",
+  authDomain: "rotas-cabun-app.firebaseapp.com",
+  messagingSenderId: "1017676204969",
+  measurementId: "G-YDQLXK9YHY"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    window.location.href = "routes_app_v3_responsive (1).html";
+  }
+});
+
+let isRegisterMode = false;
+
+window.toggleMode = function(mode) {
+  const lbl = document.getElementById('formLabel');
+  const title = document.getElementById('formTitle');
+  const sub = document.getElementById('formSub');
+  const btn = document.getElementById('btn-text');
+  const footer = document.getElementById('formFooter');
+  const extras = document.getElementById('fieldExtras');
+
+  if(mode === 'register') {
+    isRegisterMode = true;
+    lbl.textContent = 'Novo acesso';
+    title.textContent = 'Criar Conta';
+    sub.textContent = 'Defina um e-mail e senha para começar';
+    btn.textContent = 'Cadastrar';
+    extras.style.display = 'none';
+    footer.innerHTML = `Já possui conta? <a onclick="toggleMode('login')" style="cursor:pointer; color:#1A6BAF; font-weight:bold;">Fazer login</a>`;
+  } else {
+    isRegisterMode = false;
+    lbl.textContent = 'Acesso à plataforma';
+    title.textContent = 'Entrar na conta';
+    sub.textContent = 'Use suas credenciais Prodesivo para acessar';
+    btn.textContent = 'Entrar';
+    extras.style.display = 'flex';
+    footer.innerHTML = `Não tem conta? <a onclick="toggleMode('register')" style="cursor:pointer; color:#1A6BAF; font-weight:bold;">Criar conta agora</a>`;
+  }
+};
+
+function showToast(message, type = 'error') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  const icon = type === 'success' ? '✅' : '⚠';
+  
+  toast.innerHTML = `
+    <span>${icon}</span>
+    <div class="toast-msg">${message}</div>
+  `;
+  
+  container.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+window.handleForgotPassword = async function() {
+  const email = document.getElementById('emailinput').value.trim();
+  if (!email) {
+    showToast("Digite seu e-mail no campo acima para recuperar a senha.");
+    document.getElementById('emailinput').focus();
+    return;
+  }
+  try {
+    await sendPasswordResetEmail(auth, email);
+    showToast("E-mail de recuperação enviado! Verifique sua caixa de entrada.", "success");
+  } catch (error) {
+    let msg = "Erro ao enviar e-mail de recuperação.";
+    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-email') {
+      msg = "E-mail não encontrado ou inválido.";
+    } else if (error.code === 'auth/too-many-requests') {
+      msg = "Muitas tentativas. Aguarde alguns minutos.";
+    }
+    showToast(msg);
+  }
+};
+
+window.handleAuth = async function(btn) {
+  const t = document.getElementById('btn-text');
+  const email = document.getElementById('emailinput').value.trim();
+  const password = document.getElementById('pwdinput').value;
+
+  if (!email || !password) {
+    showToast("Por favor, preencha o e-mail e a senha.");
+    return;
+  }
+
+  t.textContent = 'Aguarde...';
+  btn.style.opacity = '.75';
+  btn.style.pointerEvents = 'none';
+
+  // Checkbox "Lembrar-me" — controla a persistência da sessão
+  const rememberMe = document.querySelector('.check-box')?.classList.contains('checked');
+  try {
+    await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+  } catch(e) { console.warn('Erro ao definir persistência:', e); }
+
+  try {
+    if (isRegisterMode) {
+      await createUserWithEmailAndPassword(auth, email, password);
+      showToast("Conta criada com sucesso!", "success");
+    } else {
+      await signInWithEmailAndPassword(auth, email, password);
+    }
+  } catch (error) {
+    let msg = "Erro desconhecido";
+    if (error.code === 'auth/email-already-in-use') {
+      msg = "Este e-mail já está cadastrado. Tente fazer login.";
+    } else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
+      msg = "E-mail ou senha incorretos.";
+    } else if (error.code === 'auth/weak-password') {
+      msg = "A senha deve ter pelo menos 6 caracteres.";
+    } else if (error.code === 'auth/invalid-email') {
+      msg = "Formato de e-mail inválido.";
+    } else {
+      msg = "Erro: " + error.code;
+    }
+    showToast(msg);
+    t.textContent = isRegisterMode ? 'Cadastrar' : 'Entrar';
+    btn.style.opacity = '1';
+    btn.style.pointerEvents = 'auto';
+  }
+};
+
+const provider = new GoogleAuthProvider();
+
+window.handleGoogleLogin = async function(btn) {
+  btn.style.opacity = '.75';
+  btn.style.pointerEvents = 'none';
+  const originalContent = btn.innerHTML;
+  btn.innerHTML = 'Conectando...';
+
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (error) {
+    let msg = "Erro no Google Login";
+    if (error.code === 'auth/popup-closed-by-user') {
+      msg = "A janela de login foi fechada antes de concluir.";
+    } else if (error.code === 'auth/operation-not-allowed') {
+      msg = "O login com Google não está ativado no Firebase Console.";
+    } else if (error.code === 'auth/unauthorized-domain') {
+      msg = "Este domínio não está autorizado no Firebase.";
+    } else if (error.code === 'auth/popup-blocked') {
+      msg = "O navegador bloqueou a janela de login. Verifique os pop-ups.";
+    } else {
+      msg = "Erro: " + error.code;
+    }
+    showToast(msg);
+    btn.innerHTML = originalContent;
+    btn.style.opacity = '1';
+    btn.style.pointerEvents = 'auto';
+  }
+};
+
+window.toggleTheme = function() {
+  var p = document.getElementById('page');
+  var l = document.getElementById('tlabel');
+  p.classList.toggle('dm');
+  const isDark = p.classList.contains('dm');
+  l.textContent = isDark ? '☾ Escuro' : '☀ Claro';
+  localStorage.setItem('routes-theme', isDark ? 'dark' : 'light');
+};
+
+// Carregar tema salvo ao abrir a página
+(function() {
+  const saved = localStorage.getItem('routes-theme');
+  if (saved === 'dark') {
+    document.getElementById('page').classList.add('dm');
+    document.getElementById('tlabel').textContent = '☾ Escuro';
+  }
+})();
+
+window.togglePwd = function() {
+  var i = document.getElementById('pwdinput');
+  var e = document.getElementById('eyeicon');
+  if(i.type === 'password'){ i.type = 'text'; e.textContent = '🙈'; }
+  else { i.type = 'password'; e.textContent = '👁'; }
+};
+
+window.toggleCheck = function(el) {
+  el.querySelector('.check-box').classList.toggle('checked');
+};

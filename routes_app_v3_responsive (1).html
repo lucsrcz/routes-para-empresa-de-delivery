@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Routes — Prodesivo</title>
+<link rel="stylesheet" href="app.css"/>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCwFuaNuzw50bn9CV2RnP3xTx8TNcFr6D4"></script>
+</head>
+<body>
+<div class="shell" id="shell">
+  <nav class="nav">
+    <div class="nav-brand">
+      <div class="nav-logo">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#9AC8E2" opacity=".5"/>
+          <circle cx="12" cy="9" r="4.5" fill="#0D487B"/>
+          <circle cx="12" cy="9" r="2" fill="#fff"/>
+        </svg>
+      </div>
+      <span class="nav-title" style="color:#fff;font-weight:700;margin-left:8px;">ROUTES</span>
+    </div>
+    <div class="nav-right">
+      <div class="temp-card" title="Luziânia, GO">
+        <span class="temp-icon">☀</span>
+        <div class="temp-col">
+          <span class="temp-val">24°C</span>
+          <span class="temp-loc">Luziânia, GO</span>
+        </div>
+      </div>
+      <button class="mode-btn" onclick="toggleAppTheme()">☀ / ☾</button>
+      <div class="nav-av" onclick="handleLogout()" title="Sair da Conta" style="cursor: pointer; display: flex; align-items: center; justify-content: center; background: transparent; color: #fff;">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line>
+        </svg>
+      </div>
+    </div>
+  </nav>
+
+  <div class="body">
+    <aside class="sidebar">
+
+
+      <div class="cards-section">
+        <div class="acard c1" onclick="alert('Funcionalidade de Rota Inteligente Otimizada (Google AI) será disponibilizada na próxima atualização!')">
+          <div class="acard-icon">⟳</div>
+          <div class="acard-body">
+            <div class="acard-title">Criar Rota Automática</div>
+            <div class="acard-desc">Gere a melhor rota entre os pontos</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+        <div class="acard c1m" onclick="openBuilderModal()">
+          <div class="acard-icon">✏</div>
+          <div class="acard-body">
+            <div class="acard-title">Criar Rota Manual</div>
+            <div class="acard-desc">Defina a ordem dos pontos você mesmo</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+        <div class="acard c2" onclick="openLocModal()">
+          <div class="acard-icon">＋</div>
+          <div class="acard-body">
+            <div class="acard-title">Adicionar Local</div>
+            <div class="acard-desc">Insira um novo endereço à lista</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+        <div class="acard c3" onclick="openSearchModal()">
+          <div class="acard-icon" style="color:var(--pr-blue-dark);">⊙</div>
+          <div class="acard-body">
+            <div class="acard-title">Pesquisar Locais</div>
+            <div class="acard-desc">Busque por nome, CEP ou endereço</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+      </div>
+
+      <div class="sec-label">Recentes</div>
+      <div class="loc-list" id="recentList">
+        <!-- Itens recentes via JS -->
+      </div>
+    </aside>
+
+    <div class="map-surface">
+      <div class="map-pill" id="mapStatsPill" style="padding:8px 20px;">
+        <span class="text-dark-auto" style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">Rode com mais facilidade e menos tempo</span>
+      </div>
+      <svg class="map-svg" viewBox="0 0 700 548" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+        <rect width="700" height="548" fill="#C8DCE8"/>
+        <rect x="40"  y="60"  width="110" height="70"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="170" y="40"  width="80"  height="55"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="270" y="80"  width="95"  height="60"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="400" y="55"  width="120" height="80"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="550" y="40"  width="100" height="65"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="80"  y="200" width="90"  height="65"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="200" y="180" width="130" height="75"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="380" y="190" width="100" height="60"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="510" y="170" width="140" height="80"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="50"  y="340" width="120" height="80"  rx="3" fill="#B4CDD9" opacity=".65"/>
+        <rect x="210" y="320" width="100" height="70"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="350" y="340" width="130" height="75"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="520" y="310" width="120" height="90"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="100" y="460" width="90"  height="60"  rx="3" fill="#B4CDD9" opacity=".55"/>
+        <rect x="280" y="440" width="110" height="70"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="440" y="450" width="130" height="65"  rx="3" fill="#B4CDD9" opacity=".55"/>
+        <rect x="0"   y="155" width="700" height="8"   fill="#FFFFFF" opacity=".85"/>
+        <rect x="0"   y="300" width="700" height="7"   fill="#FFFFFF" opacity=".8"/>
+        <rect x="0"   y="430" width="700" height="6"   fill="#FFFFFF" opacity=".75"/>
+        <rect x="155" y="0"   width="7"   height="548" fill="#FFFFFF" opacity=".8"/>
+        <rect x="330" y="0"   width="7"   height="548" fill="#FFFFFF" opacity=".75"/>
+        <rect x="490" y="0"   width="6"   height="548" fill="#FFFFFF" opacity=".75"/>
+        <polyline points="90,370 90,300 165,160 240,160 335,160 335,300 500,300 500,370 610,370"
+          stroke="#0D487B" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="10,4" opacity=".9"/>
+        <circle cx="90"  cy="370" r="15" fill="#0D487B"/>
+        <circle cx="90"  cy="370" r="7" fill="#fff"/>
+        <text x="90"  y="405" text-anchor="middle" font-size="14" fill="#0D487B" font-weight="900" font-family="sans-serif">Prodesivo</text>
+        <circle cx="335" cy="160" r="10" fill="#1A6BAF"/>
+        <circle cx="335" cy="160" r="4"  fill="#fff"/>
+        <text x="335" y="149" text-anchor="middle" font-size="9" fill="#1A6BAF" font-weight="700" font-family="sans-serif">P2</text>
+        <circle cx="500" cy="300" r="10" fill="#1A6BAF"/>
+        <circle cx="500" cy="300" r="4"  fill="#fff"/>
+        <text x="500" y="289" text-anchor="middle" font-size="9" fill="#1A6BAF" font-weight="700" font-family="sans-serif">P3</text>
+        <circle cx="610" cy="370" r="15" fill="#9AC8E2"/>
+        <circle cx="610" cy="370" r="7"  fill="#0D487B"/>
+        <text x="610" y="405" text-anchor="middle" font-size="14" fill="#0D487B" font-weight="900" font-family="sans-serif">CLIENTE</text>
+        <rect x="4" y="530" width="90" height="14" rx="3" fill="rgba(255,255,255,0.6)"/>
+        <text x="8" y="541" font-size="8" fill="#666" font-family="sans-serif">© Google Maps</text>
+      </svg>
+      <!-- Elementos removidos por solicitação do usuário -->
+
+      <div class="pd-badge" id="pdRouteDetails" style="max-width: 250px; text-align: center;">
+        <div class="text-dark-auto" style="font-weight: 700; margin-bottom: 2px;">Prodesivo — Routes</div>
+        <div style="font-size: 9px; color: var(--pr-text-muted); margin-bottom: 8px; font-style: italic; opacity: 0.8;">Facilitando suas entregas</div>
+        <div id="routePreviewContainer" style="display:none; margin-bottom: 8px; border-radius: 8px; overflow: hidden; border: 1px solid var(--pr-border); cursor: pointer;" onclick="event.stopPropagation(); openGoogleMaps()">
+          <img id="routePreviewImg" src="" style="width: 100%; height: auto; display: block; background: #eee;" title="Clique para abrir no Google Maps"/>
+        </div>
+        <div id="routeStopList" style="font-size: 8px; margin-top: 4px; opacity: 0.8; max-height: 80px; overflow-y: auto;"></div>
+        <div id="routeActionContainer" style="display:none; margin-top: 8px;">
+          <a id="routeExternalLink" href="#" target="_blank" onclick="event.stopPropagation(); return openGoogleMaps(event)" style="display: block; background: var(--pr-blue-dark); color: #fff; text-decoration: none; text-align: center; padding: 6px; border-radius: 6px; font-size: 10px; font-weight: 600;">🚀 Iniciar Navegação</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom nav (mobile only) -->
+  <nav class="bottom-nav">
+    <div class="bn-item active" onclick="openGoogleMaps()" style="cursor:pointer;">
+      <span class="bn-icon">🗺</span>
+      <span class="bn-label">Maps</span>
+    </div>
+    <div class="bn-item" onclick="openRouteChoiceModal()" style="cursor:pointer;">
+      <span class="bn-icon">⟳</span>
+      <span class="bn-label">Routes</span>
+    </div>
+    <div class="bn-item" onclick="openLocModal()">
+      <span class="bn-icon">＋</span>
+      <span class="bn-label">Add</span>
+    </div>
+    <div class="bn-item" onclick="openSearchModal()">
+      <span class="bn-icon">⊙</span>
+      <span class="bn-label">Search</span>
+    </div>
+  </nav>
+</div>
+
+<div class="modal-overlay" id="locModal" onclick="event.stopPropagation()">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-title" id="locModalTitle">Adicionar Local</div>
+    <div class="modal-desc">Insira um link do Google Maps ou endereço, e dê um nome (opcional).</div>
+    <input type="hidden" id="locEditingId" value=""/>
+    <input type="text" class="modal-input" id="locNameInput" placeholder="Nome do Local (Opcional)" style="margin-bottom:10px;"/>
+    <input type="text" class="modal-input" id="locInput" placeholder="Ex: https://goo.gl/maps/..."/>
+    <div class="modal-actions">
+      <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); closeLocModal()">Cancelar</button>
+      <button class="mbtn mbtn-save" id="locSaveBtn" onclick="event.stopPropagation(); saveLocation()">Salvar Local</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="searchModal" onclick="event.stopPropagation()">
+  <div class="modal-content" style="max-height: 80vh; display: flex; flex-direction: column;" onclick="event.stopPropagation()">
+    <div class="modal-title">Meus Locais Salvos</div>
+    <input type="text" class="modal-input" id="searchAgendaInput" placeholder="🔍 Buscar por nome ou endereço..." style="margin-top:10px; height: 38px; font-size:12px;" onkeyup="renderSearchAgenda()"/>
+    <div class="loc-list" id="searchList" style="overflow-y: auto; flex: 1; padding-bottom: 5px; margin: 10px -10px 0; padding-left: 10px; padding-right: 10px;">
+      <!-- Itens via JS -->
+    </div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); closeSearchModal()">Fechar Agenda</button>
+    </div>
+  </div>
+</div>
+
+<!-- BUILDER MODAL (Roteiro em Ordem) -->
+<div class="modal-overlay" id="builderModal" onclick="event.stopPropagation()">
+  <div class="modal-content" style="max-height: 85vh; width: 95%; max-width: 500px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
+    <div class="modal-title">Configurar Rota Manual</div>
+    
+    <div style="margin-bottom: 10px;">
+      <div class="text-dark-auto" style="font-size:12px; font-weight:700; margin-bottom:5px;">Ordem da Rota (Revise e Ajuste):</div>
+      <div id="routeSequence" style="background:var(--pr-bg); border-radius:8px; padding:10px; min-height:50px; max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:5px;">
+        <!-- Pontos da rota selecionada entram aqui -->
+      </div>
+    </div>
+
+    <!-- Campo de Busca Local -->
+    <input type="text" class="modal-input" id="builderSearch" placeholder="🔍 Pesquisar para adicionar..." style="margin-bottom:10px; height: 38px; font-size:12px;" onkeyup="filterBuilderLocations()"/>
+    
+    <!-- Locais Disponíveis -->
+    <div class="loc-list" id="builderAvailableList" style="overflow-y: auto; flex: 1; padding: 5px; margin: 0 -5px;">
+      <!-- Itens renderizados no JS -->
+    </div>
+    
+    <div class="modal-actions" style="margin-top:15px; display:flex; justify-content:space-between; align-items:center;">
+      <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); closeBuilderModal()">Voltar</button>
+      <button id="mainGenerateBtn" class="mbtn mbtn-save" style="background:#1A6BAF; letter-spacing:.5px;" onclick="event.stopPropagation(); generateManualRoute()">🗺 Gerar Rota</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DE ESCOLHA DE ROTA (MOBILE) -->
+<div class="modal-overlay" id="routeChoiceModal" onclick="event.stopPropagation()">
+  <div class="modal-content" style="max-width: 320px; padding: 25px;" onclick="event.stopPropagation()">
+    <div class="modal-title" style="text-align: center; margin-bottom: 20px;">Tipo de Rota</div>
+    <div style="display: flex; flex-direction: column; gap: 15px;">
+      <div class="acard c1" style="margin: 0;" onclick="closeRouteChoiceModal(); alert('Funcionalidade de Rota Inteligente Otimizada (Google AI) será disponibilizada na próxima atualização!')">
+        <div class="acard-icon">⟳</div>
+        <div class="acard-body">
+          <div class="acard-title">Automática</div>
+          <div class="acard-desc">Otimização via IA</div>
+        </div>
+      </div>
+      <div class="acard c1m" style="margin: 0;" onclick="closeRouteChoiceModal(); openBuilderModal()">
+        <div class="acard-icon">✏</div>
+        <div class="acard-body">
+          <div class="acard-title">Manual</div>
+          <div class="acard-desc">Você define a ordem</div>
+        </div>
+      </div>
+    </div>
+    <button class="mbtn mbtn-cancel" style="width: 100%; margin-top: 20px;" onclick="event.stopPropagation(); closeRouteChoiceModal()">Cancelar</button>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
