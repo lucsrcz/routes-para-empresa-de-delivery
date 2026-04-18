@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
-import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 
 const firebaseConfig = {
   projectId: "rotas-cabun-app",
@@ -92,11 +92,90 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-onAuthStateChanged(auth, (user) => {
+window.userRole = "driver"; // Padrão global
+
+async function applyRoleUI() {
+  console.log("Seu nível de acesso detectado:", window.userRole);
+  const adminArea = document.getElementById('adminDriverArea');
+  const adminBtn = document.getElementById('adminHubBtn');
+  
+  if (window.userRole === "admin") {
+    if (adminArea) adminArea.style.display = "block";
+    if (adminBtn) adminBtn.style.display = "flex";
+    
+    try {
+      const q = query(collection(db, "users"));
+      const querySnapshot = await getDocs(q);
+      const select = document.getElementById('adminDriverSelect');
+      
+      if (select) {
+        select.innerHTML = '<option value="">✅ Para mim</option>';
+        querySnapshot.forEach((docSnap) => {
+          const u = docSnap.data();
+          if (u.role === "driver") {
+            const opt = document.createElement('option');
+            opt.value = docSnap.id;
+            opt.textContent = `🚗 ${u.name || u.email || 'Motorista'}`;
+            select.appendChild(opt);
+          }
+        });
+      }
+    } catch(e) {
+      console.warn("Erro ao carregar lista de motoristas:", e);
+    }
+  } else {
+    if (adminArea) adminArea.style.display = "none";
+    if (adminBtn) adminBtn.style.display = "none";
+  }
+}
+
+window.renameDriver = async function(uid, oldName) {
+  const newName = prompt("Digite o nome desse motorista:", oldName || "");
+  if (newName !== null && newName.trim() !== "") {
+    try {
+      await updateDoc(doc(db, "users", uid), { name: newName.trim() });
+      loadAdminHubData();
+      applyRoleUI();
+    } catch(e) {
+      alert("Erro: " + e.message);
+    }
+  }
+}
+
+onAuthStateChanged(auth, async (user) => {
   if (!user) {
     window.location.href = "routes_login.html";
   } else {
     currentUser = user;
+    
+    // Configuração de Identidade e Papel (Role)
+    try {
+      const userRef = doc(db, "users", currentUser.uid);
+      const userSnap = await getDoc(userRef);
+      const isAdminEmail = currentUser.email === "lucsrcz@gmail.com";
+      
+      if (!userSnap.exists()) {
+        window.userRole = isAdminEmail ? "admin" : "driver";
+        await setDoc(userRef, {
+          email: currentUser.email,
+          role: window.userRole,
+          createdAt: serverTimestamp()
+        });
+      } else {
+        window.userRole = userSnap.data().role || "driver";
+      }
+
+      // Upgrade de segurança: Força a carteira de Admin para o seu e-mail caso não esteja
+      if (isAdminEmail && window.userRole !== "admin") {
+         await updateDoc(userRef, { role: "admin" });
+         window.userRole = "admin";
+      }
+
+      applyRoleUI();
+    } catch(err) {
+      console.warn("Erro ao configurar permissões do usuário", err);
+    }
+
     loadLocations();
   }
 });
@@ -339,6 +418,7 @@ function loadLocations() {
   const qHistory = query(collection(db, "users", currentUser.uid, "history"), orderBy("createdAt", "desc"), limit(1));
   onSnapshot(qHistory, (snapshot) => {
     if(!snapshot.empty) {
+      window.activeRouteId = snapshot.docs[0].id;
       const data = snapshot.docs[0].data();
       const mD = document.getElementById('mapDist');
       const mT = document.getElementById('mapTime');
@@ -353,25 +433,68 @@ function loadLocations() {
         rL.innerHTML = `<strong>Última Rota:</strong><br><span style="color:var(--pr-blue-mid)">● Início: Minha Localização</span><br>${names}`;
       }
 
-      // Restaurar Imagem e Link do histórico
+      // Sincronizar Card Flutuante
+      window.currentRouteUrl = data.mapsUrl || "";
+      
+      // Título: "Rota Manual" + Visor de Status
+      const drcTitle = document.getElementById('drcTitle');
+      const st = data.status || "Pendente";
+      let stColor = st === "Pendente" ? "orange" : (st === "Concluída" ? "#00e676" : "#2196f3");
+      if(drcTitle) drcTitle.innerHTML = `Rota Manual <span style="font-size:10px; background:\${stColor}; color:#fff; padding:2px 6px; border-radius:10px; margin-left:6px; font-weight:bold;">\${st}</span>`;
+
+      // Descrição: lista dos locais da rota
+      const drcDate = document.getElementById('drcDate');
+      if(drcDate && data.points) {
+        const stopNames = data.points.map(p => p.name || 'Local').join(', ');
+        const distInfo = data.distance !== "—" ? ` • ${data.distance}km` : "";
+        const timeInfo = data.time !== "—" ? ` • ${data.time}min` : "";
+        drcDate.textContent = `Rota: ${stopNames}${distInfo}${timeInfo}`;
+      }
+
+      // Link: "maps.app.goo.gl"
+      const drcLinkText = document.getElementById('drcLinkText');
+      if(drcLinkText) drcLinkText.textContent = "maps.app.goo.gl";
+
+      // Dashboard
       if(data.polyline) {
         const apiKey = firebaseConfig.apiKey;
         const poly = encodeURIComponent(data.polyline);
-        const staticImgUrl = `https://maps.googleapis.com/maps/api/staticmap?size=300x150&path=color:0x1A6BAF|weight:4|enc:${poly}&key=${apiKey}`;
+        const staticImgUrl = `https://maps.googleapis.com/maps/api/staticmap?size=440x280&path=color:0x4285F4|weight:4|enc:${poly}&key=${apiKey}`;
         
         const previewImg = document.getElementById('routePreviewImg');
         const previewContainer = document.getElementById('routePreviewContainer');
         const actionContainer = document.getElementById('routeActionContainer');
         const externalLink = document.getElementById('routeExternalLink');
-        
         if(previewImg) previewImg.src = staticImgUrl;
         if(previewContainer) previewContainer.style.display = 'block';
         if(actionContainer) actionContainer.style.display = 'block';
         if(externalLink) externalLink.href = data.mapsUrl || "#";
       }
+
+      // Feedback visual no card
+      const card = document.getElementById('dailyRouteCard');
+      if(card) {
+        card.style.transform = 'scale(1.05)';
+        setTimeout(() => card.style.transform = 'scale(1)', 400);
+      }
     }
   });
 }
+
+window.finishActiveRoute = async function() {
+  if (confirm("Deseja marcar esta rota como Concluída?")) {
+    if (window.activeRouteId) {
+      try {
+        await updateDoc(doc(db, "users", currentUser.uid, "history", window.activeRouteId), {
+           status: "Concluída"
+        });
+        alert("Excelente! Rota concluída. O administrador já pode ver no painel.");
+      } catch(e) {
+        console.warn("Erro ao concluir", e);
+      }
+    }
+  }
+};
 
 /* BUILDER MODAL LOGIC */
 window.openRouteChoiceModal = function() {
@@ -497,19 +620,25 @@ window.renderBuilderSequence = function() {
 window.generateManualRoute = async function() {
   const genBtn = document.getElementById('mainGenerateBtn');
   if (genBtn) {
-    genBtn.textContent = "⏳ Calculando...";
+    genBtn.textContent = "⏳ Salvando...";
     genBtn.style.pointerEvents = "none";
     genBtn.style.opacity = "0.7";
   }
 
   try {
+    if(!currentUser) {
+      alert("Aguarde a autenticação conectar ou faça login novamente.");
+      if (genBtn) { genBtn.textContent = "🗺 Gerar Rota"; genBtn.style.pointerEvents = "auto"; genBtn.style.opacity = "1"; }
+      return;
+    }
+
     if(builderSelectedPoints.length < 1) {
       alert("Selecione pelo menos 1 ponto.");
       if(genBtn) { genBtn.textContent = "🗺 Gerar Rota"; genBtn.style.pointerEvents = "auto"; genBtn.style.opacity = "1"; }
       return;
     }
     
-    // Gerar link do Maps e redirecionar imediatamente
+    // 1) Montar o link do Google Maps (SEM abrir)
     const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.name || loc.originalInput);
     const lastP = builderSelectedPoints[builderSelectedPoints.length - 1];
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
@@ -517,122 +646,91 @@ window.generateManualRoute = async function() {
       const wpUrls = builderSelectedPoints.slice(0, -1).map(getDeepFormat);
       mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
     }
-    window.open(mapsUrl, '_blank');
 
-    if (typeof google === 'undefined' || !google.maps) {
-       setTimeout(() => { if(genBtn) { genBtn.textContent = "🗺 Gerar Rota"; genBtn.style.pointerEvents = "auto"; genBtn.style.opacity = "1"; } }, 800);
-       return;
-    }
-
-    const directionsService = new google.maps.DirectionsService();
+    // 2) Preparar URL e fechar a janela imediatamente para o usuário não esperar
+    window.currentRouteUrl = mapsUrl;
     
-    // Tentar GPS rápido se ignorado antes
-    if (!userCoords) {
-       try {
-         const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout: 2000}));
-         userCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-       } catch(e) { console.warn("GPS falhou, usando último ponto conhecido ou ignorando calculo."); }
+    // Feedback + fechar modal IMEDIATAMENTE
+    if(genBtn) { 
+      genBtn.textContent = "✅ Rota Gerada!";
     }
+    const builderModal = document.getElementById('builderModal');
+    if(builderModal) builderModal.classList.remove('active');
 
-    if (!userCoords) {
-      alert("Aguardando permissão de GPS ou sinal de localização...");
+    // Reset do botão em background
+    setTimeout(() => {
       if(genBtn) { genBtn.textContent = "🗺 Gerar Rota"; genBtn.style.pointerEvents = "auto"; genBtn.style.opacity = "1"; }
-      return;
+    }, 1500);
+
+    // 3) Identificar para quem despachar a rota (Admin ou Próprio)
+    let targetUid = currentUser.uid;
+    const isDesktop = window.innerWidth >= 768;
+    if (window.userRole === "admin" && isDesktop) {
+      const driverSelect = document.getElementById('adminDriverSelect');
+      if (driverSelect && driverSelect.value) {
+        targetUid = driverSelect.value;
+      }
     }
 
-    const getClean = (p) => {
-      if (p.lat && p.lng && !isNaN(p.lat)) {
-        return new google.maps.LatLng(Number(p.lat), Number(p.lng));
-      }
-      return p.name || p.originalInput || "Local";
-    };
+    // 3) Salvar no banco (vai disparar o listener do Firestore que atualiza o card do Usuário Alvo)
+    const newRouteRef = await addDoc(collection(db, "users", targetUid, "history"), {
+      points: builderSelectedPoints.map(p => ({name: p.name, input: p.originalInput, lat: p.lat||null, lng: p.lng||null})),
+      distance: "—", time: "—", stopsCount: builderSelectedPoints.length, 
+      polyline: "",
+      mapsUrl: mapsUrl,
+      status: "Pendente",
+      createdAt: serverTimestamp()
+    });
 
-    console.log("Solicitando rota para o Google...", { origin: userCoords, destination: lastP.name });
-
-    // Timeout de segurança para o botão (10 segundos)
-    const safetyTimeout = setTimeout(() => {
-      if (genBtn && genBtn.textContent === "⏳ Calculando...") {
-        console.warn("Calculo expirou (timeout)");
-        genBtn.textContent = "🗺 Gerar Rota";
-        genBtn.style.pointerEvents = "auto";
-        genBtn.style.opacity = "1";
-        alert("O Google Maps não respondeu a tempo. Verifique sua internet ou se o GPS está ativo.");
-      }
-    }, 10000);
-
-    const checkCoord = (c) => typeof c === 'number' && !isNaN(c);
-
+    // 4) Tentar calcular detalhes e trajeto em BACKGROUND (sem travar nada)
     try {
-      directionsService.route({
-        origin: (userCoords && checkCoord(userCoords.lat) && checkCoord(userCoords.lng)) 
-                ? new google.maps.LatLng(userCoords.lat, userCoords.lng) 
-                : "Seu Local",
-        destination: getClean(lastP),
-        waypoints: builderSelectedPoints.length > 1 ? builderSelectedPoints.slice(0, -1).map(p => ({ location: getClean(p), stopover: true })) : [],
-        travelMode: google.maps.TravelMode.DRIVING
-      }, (response, status) => {
-        clearTimeout(safetyTimeout);
-        console.log("Resposta do Maps:", status);
-
-        if (status === 'OK') {
-          const route = response.routes[0];
-          let tM = 0; let tS = 0;
-          route.legs.forEach(leg => { tM += leg.distance.value; tS += leg.duration.value; });
-          const dk = (tM / 1000).toFixed(1);
-          const tm = Math.round(tS / 60);
-          
-          // Atualização Otimista
-          document.getElementById('mapDist').textContent = dk + ' km';
-          document.getElementById('mapTime').textContent = tm + ' min';
-          document.getElementById('mapStops').textContent = builderSelectedPoints.length;
-          
-          const stopNames = builderSelectedPoints.map((p, i) => `${i+1}. ${p.name || 'Local'}`).join('<br>');
-          document.getElementById('routeStopList').innerHTML = `<strong>Trajeto:</strong><br><span style="color:var(--pr-blue-mid)">● Início: Minha Localização</span><br>${stopNames}`;
-
-          // Preview de Imagem
-          if(route.overview_polyline) {
-            const poly = encodeURIComponent(route.overview_polyline);
-            const apiKey = firebaseConfig.apiKey;
-            const staticImgUrl = `https://maps.googleapis.com/maps/api/staticmap?size=400x200&path=color:0x1A6BAF|weight:5|enc:${poly}&key=${apiKey}`;
-            
-            const pI = document.getElementById('routePreviewImg');
-            const pC = document.getElementById('routePreviewContainer');
-            const aC = document.getElementById('routeActionContainer');
-            const eL = document.getElementById('routeExternalLink');
-            if(pI) pI.src = staticImgUrl;
-            if(pC) pC.style.display = 'block';
-            if(aC) aC.style.display = 'block';
-            if(eL) eL.href = mapsUrl;
-          }
-
-          addDoc(collection(db, "users", currentUser.uid, "history"), {
-            points: builderSelectedPoints.map(p => ({name: p.name, input: p.originalInput, lat: p.lat||null, lng: p.lng||null})),
-            distance: dk, time: tm, stopsCount: builderSelectedPoints.length, 
-            polyline: route.overview_polyline || "",
-            mapsUrl: mapsUrl,
-            createdAt: serverTimestamp()
-          }).catch(e => console.error("Erro ao salvar histórico:", e));
-        } else {
-          alert("Não foi possível calcular a rota: " + status + ". (Dica: Verifique se todos os locais existem no mapa)");
+      if (typeof google !== 'undefined' && google.maps) {
+        if (!userCoords) {
+          try {
+            const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout: 3000}));
+            userCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          } catch(e) { /* sem GPS, ok */ }
         }
+        
+        if (userCoords) {
+          const directionsService = new google.maps.DirectionsService();
+          const getClean = (p) => {
+            if (p.lat && p.lng && !isNaN(p.lat)) return new google.maps.LatLng(Number(p.lat), Number(p.lng));
+            return p.name || p.originalInput || "Local";
+          };
+          const checkCoord = (c) => typeof c === 'number' && !isNaN(c);
 
-        if (genBtn) {
-          genBtn.textContent = "🗺 Gerar Rota";
-          genBtn.style.pointerEvents = "auto";
-          genBtn.style.opacity = "1";
+          directionsService.route({
+            origin: checkCoord(userCoords.lat) ? new google.maps.LatLng(userCoords.lat, userCoords.lng) : "Seu Local",
+            destination: getClean(lastP),
+            waypoints: builderSelectedPoints.length > 1 ? builderSelectedPoints.slice(0, -1).map(p => ({ location: getClean(p), stopover: true })) : [],
+            travelMode: google.maps.TravelMode.DRIVING
+          }, async (response, status) => {
+            if (status === 'OK') {
+              const route = response.routes[0];
+              let tM = 0; let tS = 0;
+              route.legs.forEach(leg => { tM += leg.distance.value; tS += leg.duration.value; });
+              const dk = (tM / 1000).toFixed(1);
+              const tm = Math.round(tS / 60);
+
+              // Atualizar DIRETAMENTE o documento recém-criado na base de dados certa
+              await updateDoc(newRouteRef, {
+                distance: dk,
+                time: tm,
+                polyline: route.overview_polyline || ""
+              });
+              console.log("✅ Detalhes da rota atualizados em background:", dk + "km", tm + "min");
+            }
+          });
         }
-      });
-    } catch (e) {
-      clearTimeout(safetyTimeout);
-      console.error("Erro no directionsService:", e);
-      if (genBtn) {
-        genBtn.textContent = "🗺 Gerar Rota";
-        genBtn.style.pointerEvents = "auto";
-        genBtn.style.opacity = "1";
       }
+    } catch(bgErr) {
+      console.warn("Cálculo em background falhou (ok, rota já foi salva):", bgErr);
     }
+
   } catch (err) {
-    console.error("Erro fatal:", err);
+    console.error("Erro ao salvar rota:", err);
+    alert("Erro ao salvar a rota: " + err.message);
     if (genBtn) {
       genBtn.textContent = "🗺 Gerar Rota";
       genBtn.style.pointerEvents = "auto";
@@ -640,3 +738,113 @@ window.generateManualRoute = async function() {
     }
   }
 };
+
+// ATUALIZAÇÃO DA DATA E HORA EM TEMPO REAL NO CARD FLUTUANTE
+function updateCardDate() {
+  const drcDate = document.getElementById('drcDate');
+  if (!drcDate) return;
+
+  // Se tem rota ativa, NÃO sobrescrever — manter os detalhes da rota
+  if (window.currentRouteUrl) return;
+
+  // Sem rota: mostrar data/hora
+  const now = new Date();
+  const dateOptions = { weekday: 'long', day: 'numeric', month: 'short' };
+  const dateStr = now.toLocaleDateString('pt-BR', dateOptions);
+  const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  drcDate.textContent = `${dateStr.charAt(0).toUpperCase() + dateStr.slice(1)} • ${timeStr}`;
+}
+
+// Função para abrir a rota ao clicar no card e MUDAR O STATUS
+window.openRouteFromCard = function(evt) {
+  if (window.currentRouteUrl) {
+    const routeUrl = window.currentRouteUrl;
+    
+    if (window.activeRouteId) {
+      // Atualiza o banco, mas SEM usar "await" para não atrasar a tela e cair no bloqueador de popups.
+      updateDoc(doc(db, "users", currentUser.uid, "history", window.activeRouteId), {
+        status: "Em Viagem"
+      }).catch(e => console.warn("Falha ao atualizar status", e));
+    }
+
+    // Logo em seguida e na mesma fração de segundo, abrimos o Maps:
+    window.open(routeUrl, '_blank');
+  } else {
+    alert("Nenhuma rota ativa. Gere uma rota primeiro!");
+  }
+};
+
+// PAINEL DA FROTA P/ ADMIN
+window.openAdminHub = function() {
+  document.getElementById('adminHubModal').classList.add('active');
+  loadAdminHubData();
+};
+
+window.closeAdminHub = function() {
+  document.getElementById('adminHubModal').classList.remove('active');
+};
+
+async function loadAdminHubData() {
+  const content = document.getElementById('adminHubContent');
+  content.innerHTML = '<p style="text-align:center; font-size:12px; color:var(--pr-text-muted);">Buscando motoristas, um momento...</p>';
+  try {
+    const usersQ = query(collection(db, "users"));
+    const snapshot = await getDocs(usersQ);
+    content.innerHTML = '';
+    
+    if (snapshot.empty) {
+      content.innerHTML = '<p style="text-align:center; font-size:12px;">Nenhum usuário encontrado.</p>';
+      return;
+    }
+
+    snapshot.forEach(async (userDoc) => {
+      const u = userDoc.data();
+      if (u.role === "driver") {
+        // Obter a última rota
+        const hQ = query(collection(db, "users", userDoc.id, "history"), orderBy("createdAt", "desc"), limit(1));
+        const hSnap = await getDocs(hQ);
+        
+        const card = document.createElement('div');
+        card.style.background = "#fff";
+        card.style.padding = "12px";
+        card.style.borderRadius = "8px";
+        card.style.borderLeft = "4px solid var(--pr-blue-dark)";
+        card.style.boxShadow = "0 1px 3px rgba(0,0,0,0.05)";
+        
+        let driverName = u.name || u.email || 'Motorista';
+        const displayEdit = `🚗 ${driverName} <span style="font-size:10px; cursor:pointer;" title="Editar Nome do Motorista" onclick="renameDriver('${userDoc.id}', '${u.name || u.email}')">✏️</span>`;
+        
+        if (hSnap.empty) {
+          card.innerHTML = `<div style="font-weight:700; font-size:13px; color:var(--pr-text);">${displayEdit}</div>
+                            <div style="font-size:11px; color:gray; margin-top:4px;">Nenhuma rota no histórico</div>`;
+        } else {
+          const r = hSnap.docs[0].data();
+          const routeStatus = r.status || "Pendente";
+          let stColor = routeStatus === "Pendente" ? "orange" : (routeStatus === "Concluída" ? "#00e676" : "#2196f3");
+          
+          let stopsCount = r.stopsCount || "?";
+          
+          let hrefUrl = r.mapsUrl || "#";
+          
+          card.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="font-weight:700; font-size:13px; color:var(--pr-text);">${displayEdit}</div>
+              <span style="font-size:10px; background:\${stColor}; color:#fff; padding:2px 6px; border-radius:10px; font-weight:bold;">\${routeStatus}</span>
+            </div>
+            <div style="font-size:11px; color:gray; margin-top:4px;">\${stopsCount} paradas registradas na rota atual.</div>
+            <a href="\${hrefUrl}" target="_blank" style="display:inline-block; margin-top:8px; font-size:10px; background:var(--pr-bg); padding:4px 8px; border-radius:4px; text-decoration:none; color:var(--pr-blue-dark); font-weight:bold;">🗺 Espionar Rota</a>
+          `;
+        }
+        content.appendChild(card);
+      }
+    });
+
+  } catch(e) {
+    console.warn("Erro ao carregar hub", e);
+    content.innerHTML = '<p style="text-align:center; color:red; font-size:12px;">Erro ao carregar dados.</p>';
+  }
+}
+
+// Inicia o loop de atualização (a cada 1 segundo)
+setInterval(updateCardDate, 1000);
+updateCardDate();

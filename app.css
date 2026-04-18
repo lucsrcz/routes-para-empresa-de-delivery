@@ -253,18 +253,33 @@ body {
   .dm #pdRouteDetails div:first-child { color: var(--pr-blue-light) !important; }
   .dm #routeStopList { color: var(--pr-text) !important; }
 
-  .bn-item.active { opacity: 1; }
+.bn-item.active { opacity: 1; }
   .dm .bn-item.active .bn-label{color:var(--pr-blue-light);}
+
+  .sidebar{
+    position:relative;z-index:5;
+    width:100%;min-width:unset;
+    border-right:none;
+    max-height:45vh;
+    padding:10px;
+    background:var(--pr-surface);
+    overflow-y:auto;
+    border-top:1px solid var(--pr-border);
+    display: flex; flex-direction: column; overflow-x: hidden;
+  }
+
   .map-pill{top:8px;padding:5px 10px;gap:8px;}
   .mp-val{font-size:11px;}
   .map-badge{top:8px;right:8px;font-size:9px;padding:5px 8px;}
   
   .pd-badge{
     top: auto !important;
-    bottom: 180px !important; /* Move up significantly on mobile */
+    bottom: 180px !important;
     transform: none !important;
   }
 }
+
+.menu-toggle, .sb-close { display: none; }
 
 /* MODAL */
 .modal-overlay {
@@ -323,4 +338,117 @@ body {
 .loc-link-icon { font-size:11px; color:var(--pr-blue-mid); text-decoration:none; vertical-align:middle; margin-left:4px; opacity:.8; transition:opacity .15s;}
 .loc-link-icon:hover { opacity:1; }
 .loc-name a:hover { text-decoration:underline !important; }
+
+/* DAILY ROUTE FLOATING CARD (WhatsApp Link Preview Style) */
+.daily-route-card {
+  position: fixed;
+  top: 80px;
+  right: 16px;
+  width: 220px;
+  background: var(--pr-surface);
+  border-radius: 10px;
+  box-shadow: var(--pr-shadow);
+  z-index: 1000;
+  overflow: hidden;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  font-family: var(--font-main);
+  border: 1px solid var(--pr-border);
+}
+
+.daily-route-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+}
+.dm .daily-route-card:hover { box-shadow: 0 12px 40px rgba(0,0,0,0.55); }
+
+.daily-route-card:active {
+  transform: scale(0.97);
+}
+
+/* Mapa grande no topo */
+.drc-preview {
+  width: 100%;
+  height: 140px;
+  position: relative;
+  background: var(--pr-bg);
+  overflow: hidden;
+}
+
+.drc-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Conteúdo da barra inferior (estilo WhatsApp) */
+.drc-content {
+  padding: 10px 12px 8px;
+  background: var(--pr-surface);
+}
+
+.drc-title {
+  margin: 0;
+  color: var(--pr-text);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  letter-spacing: -0.1px;
+}
+
+.drc-desc {
+  margin: 0;
+  color: var(--pr-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  margin-bottom: 0;
+  max-height: none;
+  overflow: visible;
+  display: block;
+}
+
+/* Linha bottom com link + ícone do Google Maps */
+.drc-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--pr-border);
+}
+
+.drc-link-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.drc-link-svg {
+  width: 13px;
+  height: 13px;
+  color: #8696a0;
+}
+
+.drc-link-text {
+  color: #8696a0;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.drc-google-icon {
+  width: 20px;
+  height: 20px;
+}
+
+@media (max-width: 520px) {
+  .daily-route-card {
+    top: 75px;
+    right: 10px;
+    left: auto;
+    width: 200px;
+    z-index: 1000;
+  }
+  .drc-preview {
+    height: 120px;
+  }
+}
 
