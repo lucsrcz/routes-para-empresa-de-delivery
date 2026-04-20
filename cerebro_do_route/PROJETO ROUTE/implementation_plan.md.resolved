@@ -1,0 +1,42 @@
+# Plano de Implementação — Sistema de Cadastro com Roles
+
+## Arquitetura do Sistema
+
+```mermaid
+graph TD
+    A[Tela de Login/Cadastro] --> B{Seleção de Role}
+    B -->|Admin| C[Campo: Senha Secreta]
+    B -->|Motorista| D[Campo: Código de Convite]
+    C --> E{Senha Correta?}
+    E -->|Sim| F[Criar conta + Firestore users/uid role:admin]
+    E -->|Não| G[Erro: Senha inválida]
+    D --> H{Convite Válido?}
+    H -->|Sim| I[Criar conta + Firestore users/uid role:driver + adminId]
+    H -->|Não| J[Erro: Convite inválido]
+    
+    F --> K[onAuthStateChanged]
+    I --> K
+    K --> L{Ler role do Firestore}
+    L -->|admin| M[Painel Admin: Route Builder + Minha Frota]
+    L -->|driver| N[Painel Driver: Missões recebidas]
+    
+    M --> O[Seção Minha Frota]
+    O --> P[Convidar Motorista: gera código]
+    O --> Q[Listar motoristas vinculados]
+```
+
+## Arquivos a Modificar
+
+1. **[routes_login.html](file:///c:/Users/lucas/OneDrive/%C3%81rea%20de%20Trabalho/projeto%20route/routes_login.html)** — Adicionar seleção de role + campos extras
+2. **[login.js](file:///c:/Users/lucas/OneDrive/%C3%81rea%20de%20Trabalho/projeto%20route/login.js)** — Lógica de cadastro com validação de role
+3. **[login.css](file:///c:/Users/lucas/OneDrive/%C3%81rea%20de%20Trabalho/projeto%20route/login.css)** — Estilos dos novos elementos
+4. **[app.js](file:///c:/Users/lucas/OneDrive/%C3%81rea%20de%20Trabalho/projeto%20route/app.js)** — onAuthStateChanged com role-based UI + painel Minha Frota
+5. **`routes_app_v3_responsive (1).html`** — Seção Minha Frota no HTML + tela de missões para driver
+6. **[firestore.rules](file:///c:/Users/lucas/OneDrive/%C3%81rea%20de%20Trabalho/projeto%20route/firestore.rules)** — Security rules atualizadas
+
+## Coleções Firestore
+
+| Coleção | Documento | Campos |
+|---------|-----------|--------|
+| `users` | `{uid}` | role, nome, email, adminId (driver only) |
+| `invites` | `{codigo}` | adminId, email, usado, criadoEm |

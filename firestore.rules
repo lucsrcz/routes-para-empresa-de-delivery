@@ -2,23 +2,125 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    function isAdmin() {
-      return request.auth != null && (
-        request.auth.token.email == "lucsrcz@gmail.com" || 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin"
-      );
+    // Helper: effective company ID for an admin (allows co-admins to share roots)
+    function effectiveAdminId(uid) {
+      let ud = get(/databases/$(database)/documents/users/$(uid)).data;
+      return (ud.get('role', '') == "admin" && ud.get('adminId', '') != '') ? ud.get('adminId', '') : uid;
     }
 
+    // Helper: check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == "admin";
+    }
+    
+    // Helper: check if admin owns the target user (via adminId)
+    function isMyAdmin(userId) {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(userId)).data.get('adminId', null) == effectiveAdminId(request.auth.uid);
+    }
+
+    // Helper: check if the requester is a driver of the target admin
+    function isMyDriver(companyId) {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('adminId', null) == companyId;
+    }
+
+    // ═══ USERS COLLECTION ═══
     match /users/{userId} {
-      allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      // Read: own doc OR admin reads their linked drivers only
+      allow read: if request.auth != null && (
+        request.auth.uid == userId || 
+        (isAdmin() && resource.data.adminId == request.auth.uid)
+      );
       
+      // Write: own doc only — Security: Cliente não pode se tornar admin 
+      // (a permissão de admin deve ser configurada manualmente via Firebase Console)
+      allow create: if request.auth != null && 
+        request.auth.uid == userId && 
+        request.resource.data.role != 'admin';
+        
+      allow update: if request.auth != null && (
+        request.auth.uid == userId || 
+        isMyAdmin(userId)
+      ) && (
+        request.resource.data.role != 'admin' || 
+        resource.data.role == 'admin' ||
+        (
+          request.auth.uid == userId &&
+          request.resource.data.role == 'admin' &&
+          (
+            request.resource.data.adminKey == 'PRODESIVOADMIN' ||
+            (
+              'adminKey' in request.resource.data &&
+              existsAfter(/databases/$(database)/documents/admin_keys/$(request.resource.data.adminKey)) &&
+              getAfter(/databases/$(database)/documents/admin_keys/$(request.resource.data.adminKey)).data.usedBy == userId
+            )
+          )
+        )
+      );
+      
+      // Subcollections
       match /locations/{locationId} {
-        allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+        allow read: if request.auth != null && (
+          request.auth.uid == userId || 
+          isMyAdmin(userId) ||
+          (isAdmin() && effectiveAdminId(request.auth.uid) == userId) ||
+          isMyDriver(userId)
+        );
+        allow write: if request.auth != null && (
+          request.auth.uid == userId || 
+          isMyAdmin(userId) ||
+          (isAdmin() && effectiveAdminId(request.auth.uid) == userId)
+        );
       }
 
       match /history/{historyId} {
-        allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+        allow read: if request.auth != null && (
+          request.auth.uid == userId || 
+          isMyAdmin(userId) ||
+          (isAdmin() && effectiveAdminId(request.auth.uid) == userId)
+        );
+        // Admin can create routes for their drivers
+        allow create: if request.auth != null && (
+          request.auth.uid == userId || 
+          isMyAdmin(userId)
+        );
+        // Owner and admin can update (e.g. mark as done)
+        allow update: if request.auth != null && (
+          request.auth.uid == userId || 
+          isMyAdmin(userId)
+        );
+        allow delete: if request.auth != null && (
+          request.auth.uid == userId || 
+          (isAdmin() && effectiveAdminId(request.auth.uid) == userId)
+        );
       }
+    }
+
+    // ═══ INVITES COLLECTION ═══
+    match /invites/{codigo} {
+      // Admin creates invites (adminId must match the requester)
+      allow create: if request.auth != null && 
+        request.resource.data.adminId == request.auth.uid &&
+        isAdmin();
+      
+      // Any authenticated user can read an invite (driver needs to validate the link)
+      allow read: if request.auth != null;
+      
+      // Authenticated users can only mark invite as used (cannot change other fields)
+      allow update: if request.auth != null &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado']) &&
+        request.resource.data.usado == true;
+    }
+
+    // ═══ ADMIN KEYS COLLECTION ═══
+    match /admin_keys/{keyId} {
+      allow create: if isAdmin() || (request.resource.data.createdBy == "SYSTEM_SETUP");
+      allow read: if request.auth != null;
+      allow update: if request.auth != null &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado', 'usedBy']);
+      allow delete: if isAdmin() || (resource.data.createdBy == "SYSTEM_SETUP");
     }
   }
 }

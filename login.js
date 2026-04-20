@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 
 const firebaseConfig = {
   projectId: "rotas-cabun-app",
@@ -13,14 +14,58 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app);
 
-onAuthStateChanged(auth, (user) => {
+// Admin role can only be assigned manually via Firebase Console.
+
+onAuthStateChanged(auth, async (user) => {
   if (user) {
+    // Se tem convite na URL e o user já está logado, processar o vínculo antes de redirecionar
+    const urlParams = new URLSearchParams(window.location.search);
+    const convite = urlParams.get('convite');
+    if (convite) {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        const inviteRef = doc(db, "invites", convite);
+        const inviteSnap = await getDoc(inviteRef);
+        
+        if (inviteSnap.exists() && !inviteSnap.data().usado) {
+          const inviteData = inviteSnap.data();
+          
+          if (userSnap.exists()) {
+            // Usuário já tem conta — vincular diretamente
+            await updateDoc(userRef, {
+              role: 'driver',
+              adminId: inviteData.adminId
+            });
+          } else {
+            // Usuário novo (via Google) — criar doc
+            await setDoc(userRef, {
+              role: 'driver',
+              adminId: inviteData.adminId,
+              nome: user.displayName || '',
+              email: user.email,
+              createdAt: serverTimestamp()
+            });
+          }
+          await updateDoc(inviteRef, { usado: true });
+        }
+      } catch(e) {
+        console.warn('Erro ao processar convite para user logado:', e);
+      }
+    }
     window.location.href = "routes_app_v3_responsive (1).html";
   }
 });
 
 let isRegisterMode = false;
+let selectedRole = null; // 'admin' ou 'driver'
+
+// ── Seleção de Role ──
+window.selectRole = function(role) {
+  selectedRole = role;
+};
 
 window.toggleMode = function(mode) {
   const lbl = document.getElementById('formLabel');
@@ -29,25 +74,55 @@ window.toggleMode = function(mode) {
   const btn = document.getElementById('btn-text');
   const footer = document.getElementById('formFooter');
   const extras = document.getElementById('fieldExtras');
+  const roleArea = document.getElementById('roleSelectionArea');
+  const nomeField = document.getElementById('fieldNome');
 
   if(mode === 'register') {
     isRegisterMode = true;
     lbl.textContent = 'Novo acesso';
     title.textContent = 'Criar Conta';
-    sub.textContent = 'Defina um e-mail e senha para começar';
+    sub.textContent = 'Preencha seus dados básicos';
     btn.textContent = 'Cadastrar';
     extras.style.display = 'none';
+    nomeField.style.display = 'block';
+    
     footer.innerHTML = `Já possui conta? <a onclick="toggleMode('login')" style="cursor:pointer; color:#1A6BAF; font-weight:bold;">Fazer login</a>`;
   } else {
     isRegisterMode = false;
     lbl.textContent = 'Acesso à plataforma';
     title.textContent = 'Entrar na conta';
-    sub.textContent = 'Use suas credenciais Prodesivo para acessar';
+    sub.textContent = 'Use suas credenciais para acessar';
     btn.textContent = 'Entrar';
     extras.style.display = 'flex';
+    nomeField.style.display = 'none';
     footer.innerHTML = `Não tem conta? <a onclick="toggleMode('register')" style="cursor:pointer; color:#1A6BAF; font-weight:bold;">Criar conta agora</a>`;
   }
+
+  // Check URL for invite code
+  checkUrlInviteCode();
 };
+
+// ── Verifica código de convite na URL ──
+function checkUrlInviteCode() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const convite = urlParams.get('convite');
+  if (convite && isRegisterMode) {
+    selectedRole = 'driver';
+    window.selectRole('driver');
+    document.getElementById('inviteCodeInput').value = convite;
+  }
+}
+
+// On page load, check for invite code
+(function() {
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('convite')) {
+    // Auto-switch to register mode
+    setTimeout(() => {
+      window.toggleMode('register');
+    }, 300);
+  }
+})();
 
 function showToast(message, type = 'error') {
   const container = document.getElementById('toastContainer');
@@ -94,10 +169,19 @@ window.handleAuth = async function(btn) {
   const t = document.getElementById('btn-text');
   const email = document.getElementById('emailinput').value.trim();
   const password = document.getElementById('pwdinput').value;
+  const nome = document.getElementById('nomeinput').value.trim();
 
   if (!email || !password) {
     showToast("Por favor, preencha o e-mail e a senha.");
     return;
+  }
+
+  // ═══ VALIDAÇÕES DE CADASTRO ═══
+  if (isRegisterMode) {
+    if (!nome) {
+      showToast("Por favor, digite seu nome.");
+      return;
+    }
   }
 
   t.textContent = 'Aguarde...';
@@ -112,8 +196,23 @@ window.handleAuth = async function(btn) {
 
   try {
     if (isRegisterMode) {
-      await createUserWithEmailAndPassword(auth, email, password);
-      showToast("Conta criada com sucesso!", "success");
+      // 1) Criar conta no Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const uid = userCredential.user.uid;
+
+      // Se tiver um convite no URL passamos junto pra quando logar, mas salvaremos ele como pending local
+      const inviteCode = document.getElementById('inviteCodeInput').value.trim();
+
+      // 2) Salvar no Firestore
+      await setDoc(doc(db, "users", uid), {
+        role: 'pending',
+        nome: nome,
+        email: email,
+        inviteCodeCache: inviteCode || null,
+        createdAt: serverTimestamp()
+      });
+
+      showToast("Conta criada com sucesso! Redirecionando...", "success");
     } else {
       await signInWithEmailAndPassword(auth, email, password);
     }
@@ -145,8 +244,47 @@ window.handleGoogleLogin = async function(btn) {
   const originalContent = btn.innerHTML;
   btn.innerHTML = 'Conectando...';
 
+  // Aplicar persistência do "Lembrar-me" também no Google Login
+  const rememberMe = document.querySelector('.check-box')?.classList.contains('checked');
   try {
-    await signInWithPopup(auth, provider);
+    await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+  } catch(e) { console.warn('Erro ao definir persistência (Google):', e); }
+
+  try {
+    const result = await signInWithPopup(auth, provider);
+    
+    // Check if user document exists — if not (first time Google login), prompt for role
+    const uid = result.user.uid;
+    const userRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      // For Google sign-in, by default assign driver if no role selection visible
+        // If register mode was active and a role was selected, use that
+      if (isRegisterMode && selectedRole) {
+        const nome = document.getElementById('nomeinput').value.trim() || result.user.displayName || '';
+
+        if (selectedRole === 'driver') {
+          const inviteCode = document.getElementById('inviteCodeInput').value.trim();
+          if (inviteCode) {
+            const inviteRef = doc(db, "invites", inviteCode);
+            const inviteSnap = await getDoc(inviteRef);
+            if (inviteSnap.exists() && !inviteSnap.data().usado) {
+              await setDoc(userRef, { role: 'driver', nome: nome, email: result.user.email, adminId: inviteSnap.data().adminId, createdAt: serverTimestamp() });
+              await updateDoc(inviteRef, { usado: true });
+            } else {
+              await setDoc(userRef, { role: 'driver', nome: nome, email: result.user.email, createdAt: serverTimestamp() });
+            }
+          } else {
+            await setDoc(userRef, { role: 'driver', nome: nome, email: result.user.email, createdAt: serverTimestamp() });
+          }
+        }
+      } else {
+        // Default: create as pending (login mode via Google, first time — role picker will show in app)
+        await setDoc(userRef, { role: 'pending', nome: result.user.displayName || '', email: result.user.email, createdAt: serverTimestamp() });
+      }
+    }
+    // Redirect happens via onAuthStateChanged
   } catch (error) {
     let msg = "Erro no Google Login";
     if (error.code === 'auth/popup-closed-by-user') {

@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Routes — Login</title>
-<link rel="stylesheet" href="login.css?v=2"/>
+<link rel="stylesheet" href="login.css?v=3"/>
 </head>
 <body>
 <div id="toastContainer" class="toast-container"></div>
@@ -12,11 +12,7 @@
   <div class="topbar">
     <div class="tb-brand">
       <div class="tb-logo">
-        <svg viewBox="0 0 24 24" fill="none">
-          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#9AC8E2" opacity=".5"/>
-          <circle cx="12" cy="9" r="4.5" fill="#0D487B"/>
-          <circle cx="12" cy="9" r="2" fill="#fff"/>
-        </svg>
+        <img src="novo_logo_app.png" style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
       </div>
       <span class="tb-title">ROUTES</span>
     </div>
@@ -85,6 +81,16 @@
           <div class="form-title" id="formTitle">Entrar na conta</div>
           <div class="form-sub" id="formSub">Use suas credenciais Prodesivo para acessar</div>
         </div>
+
+        <!-- Nome (visível apenas no cadastro) -->
+        <div class="field" id="fieldNome" style="display:none;">
+          <label class="field-label">Seu Nome</label>
+          <div class="field-wrap">
+            <span class="field-icon">👤</span>
+            <input class="field-input" id="nomeinput" type="text" placeholder="Nome completo"/>
+          </div>
+        </div>
+
         <div class="field">
           <label class="field-label">E-mail</label>
           <div class="field-wrap">
@@ -100,6 +106,10 @@
             <span class="field-eye" onclick="togglePwd()" id="eyeicon">👁</span>
           </div>
         </div>
+
+        <!-- ═══ SELEÇÃO DE ROLE TRANSFERIDA PARA O APP ═══ -->
+        <input type="hidden" id="inviteCodeInput" value="">
+
         <div class="field-extras" id="fieldExtras">
           <div class="check-wrap" onclick="toggleCheck(this)">
             <div class="check-box checked" id="chk">✓</div>
@@ -134,6 +144,6 @@
   </div>
 </div>
 
-<script type="module" src="login.js"></script>
+<script type="module" src="login.js?v=5"></script>
 </body>
 </html>
