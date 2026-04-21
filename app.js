@@ -92,6 +92,68 @@ async function updateWeather(lat, lon) {
   }
 }
 
+// ══════════════════════════════════════════════════════════
+// OSRM UTILITY — cálculo de trajeto em background
+// ══════════════════════════════════════════════════════════
+window.calculateOSRMBackground = async function(routeRef, points) {
+  try {
+    if (!points || points.length === 0) return;
+    
+    // Coletar coordenadas dos pontos (filtrando nulos)
+    const validPoints = points.filter(p => p.lat && p.lng);
+    if (validPoints.length === 0) return;
+
+    // Tentar obter localização atual se não estiver carregada (fallback para rotas mais precisas)
+    if (!window.userCoords) {
+      try {
+        const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout: 3000, enableHighAccuracy: true}));
+        window.userCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      } catch(e) { /* sem GPS ou timeout, continua com o que tem */ }
+    }
+
+    let coords = [];
+    if (window.userCoords) {
+      coords.push(`${window.userCoords.lng},${window.userCoords.lat}`);
+    }
+    validPoints.forEach(p => coords.push(`${p.lng},${p.lat}`));
+
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coords.join(';')}?overview=full&geometries=polyline`;
+
+    const res = await fetch(osrmUrl);
+    const data = await res.json();
+
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      const route = data.routes[0];
+      const dk = (route.distance / 1000).toFixed(1);
+      const tm = Math.round(route.duration / 60);
+
+      await updateDoc(routeRef, {
+        distance: dk,
+        time: tm,
+        polyline: route.geometry || ""
+      });
+      console.log("✅ Detalhes da rota atualizados via OSRM:", dk + "km", tm + "min");
+    }
+  } catch(e) {
+    console.warn("Falha no cálculo background OSRM:", e);
+  }
+};
+
+// Utility para decodificar polylines do Google/OSRM
+window.decodePolyline = function(str, precision = 5) {
+  let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null, latitude_change, longitude_change, factor = Math.pow(10, precision);
+  while (index < str.length) {
+    byte = null; shift = 0; result = 0;
+    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    latitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    shift = result = 0;
+    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    longitude_change = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += latitude_change; lng += longitude_change;
+    coordinates.push([lat / factor, lng / factor]);
+  }
+  return coordinates;
+};
 
 
 window.userRole = "driver"; // Padrão global
@@ -586,11 +648,8 @@ onAuthStateChanged(auth, async (user) => {
     // Load locations for admin or driver
     loadLocations();
 
-    // Iniciar checagem automática de rotas agendadas (a cada 30 segundos)
-    if (window._dispatchInterval) clearInterval(window._dispatchInterval);
-    window._dispatchInterval = setInterval(window.checkAndDispatchScheduledRoutes, 30000);
-    // Executar imediatamente a primeira checagem
-    setTimeout(window.checkAndDispatchScheduledRoutes, 3000);
+    // Iniciar sistema de despacho automático de rotas agendadas
+    window.startScheduledRouteDispatcher();
   }
 });
 
@@ -1023,9 +1082,9 @@ function loadLocations() {
       const mD = document.getElementById('mapDist');
       const mT = document.getElementById('mapTime');
       const mS = document.getElementById('mapStops');
-      if(mD) mD.textContent = data.distance + ' km';
-      if(mT) mT.textContent = data.time + ' min';
-      if(mS) mS.textContent = data.stopsCount;
+      if(mD) mD.textContent = (data.distance && data.distance !== "—") ? data.distance + ' km' : '—';
+      if(mT) mT.textContent = (data.time && data.time !== "—") ? data.time + ' min' : '—';
+      if(mS) mS.textContent = data.stopsCount || 0;
       
       // Título: "Rota de Hoje" + Visor de Status (apenas para motoristas)
       if (window.userRole !== 'admin') {
@@ -1349,54 +1408,11 @@ window.generateManualRoute = async function() {
       alert(`✅ Rota enviada com sucesso para ${targetDriverName}!\n\n📍 ${builderSelectedPoints.length} parada(s)\n🔗 O motorista já pode ver a missão no painel.`);
     }
 
+    // 4) Tentar calcular detalhes e trajeto em BACKGROUND via OSRM
+    window.calculateOSRMBackground(newRouteRef, builderSelectedPoints);
+
     // Reset do botão em background
     setTimeout(resetBtn, 1500);
-
-    // 4) Tentar calcular detalhes e trajeto em BACKGROUND (sem travar nada)
-    try {
-      if (typeof google !== 'undefined' && google.maps) {
-        if (!userCoords) {
-          try {
-            const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout: 3000}));
-            userCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          } catch(e) { /* sem GPS, ok */ }
-        }
-        
-        if (userCoords) {
-          const directionsService = new google.maps.DirectionsService();
-          const getClean = (p) => {
-            if (p.lat && p.lng && !isNaN(p.lat)) return new google.maps.LatLng(Number(p.lat), Number(p.lng));
-            return p.name || p.originalInput || "Local";
-          };
-          const checkCoord = (c) => typeof c === 'number' && !isNaN(c);
-
-          directionsService.route({
-            origin: checkCoord(userCoords.lat) ? new google.maps.LatLng(userCoords.lat, userCoords.lng) : "Seu Local",
-            destination: getClean(lastP),
-            waypoints: builderSelectedPoints.length > 1 ? builderSelectedPoints.slice(0, -1).map(p => ({ location: getClean(p), stopover: true })) : [],
-            travelMode: google.maps.TravelMode.DRIVING
-          }, async (response, status) => {
-            if (status === 'OK') {
-              const route = response.routes[0];
-              let tM = 0; let tS = 0;
-              route.legs.forEach(leg => { tM += leg.distance.value; tS += leg.duration.value; });
-              const dk = (tM / 1000).toFixed(1);
-              const tm = Math.round(tS / 60);
-
-              // Atualizar DIRETAMENTE o documento recém-criado na base de dados certa
-              await updateDoc(newRouteRef, {
-                distance: dk,
-                time: tm,
-                polyline: route.overview_polyline || ""
-              });
-              console.log("✅ Detalhes da rota atualizados em background:", dk + "km", tm + "min");
-            }
-          });
-        }
-      }
-    } catch(bgErr) {
-      console.warn("Cálculo em background falhou (ok, rota já foi salva):", bgErr);
-    }
 
   } catch (err) {
     console.error("Erro ao salvar rota:", err);
@@ -2166,7 +2182,11 @@ window.fpSendScheduledNow = async function(schedId) {
 
     if (data.note) routeData.note = data.note;
 
-    await addDoc(collection(db, "users", driverUid, "history"), routeData);
+
+    const newRouteRef = await addDoc(collection(db, "users", driverUid, "history"), routeData);
+    
+    // Tentar calcular detalhes e trajeto em BACKGROUND via OSRM
+    window.calculateOSRMBackground(newRouteRef, routeData.points);
 
     alert("✅ Rota enviada com sucesso para " + window._fpCurrentDriverName + "!");
   } catch(e) {
@@ -2175,63 +2195,253 @@ window.fpSendScheduledNow = async function(schedId) {
   }
 };
 
+// ══════════════════════════════════════════════════════════
+// SISTEMA DE DESPACHO AUTOMATICO DE ROTAS AGENDADAS
+// 3 camadas: onSnapshot + setTimeout preciso + visibilitychange
+// ══════════════════════════════════════════════════════════
+
+// IDs ja despachados nesta sessao (anti-duplicata)
+window._dispatchedScheduleIds = new Set();
+// Timers ativos de setTimeout (para cancelar se necessario)
+window._scheduledTimers = {};
+// Unsubscribers dos onSnapshot listeners
+window._scheduleListenerUnsubs = [];
+
+// Funcao principal que inicializa tudo
+window.startScheduledRouteDispatcher = function() {
+  if (!currentUser) return;
+
+  // Limpar estado anterior
+  if (window._dispatchPollInterval) clearInterval(window._dispatchPollInterval);
+  window._scheduleListenerUnsubs.forEach(unsub => { try { unsub(); } catch(e) {} });
+  window._scheduleListenerUnsubs = [];
+  Object.values(window._scheduledTimers).forEach(t => clearTimeout(t));
+  window._scheduledTimers = {};
+
+  console.log("[Scheduler] Iniciando sistema de despacho automatico...");
+
+  // Funcao que despacha UMA rota especifica
+  const dispatchSingleRoute = async (driverUid, schedDocRef, schedData, schedId) => {
+    // Anti-duplicata: se ja foi despachada nesta sessao, ignorar
+    if (window._dispatchedScheduleIds.has(schedId)) return;
+    window._dispatchedScheduleIds.add(schedId);
+
+    try {
+      // Verificar se ainda esta com status "scheduled" (outra aba pode ter despachado)
+      const freshSnap = await getDoc(schedDocRef);
+      if (!freshSnap.exists() || freshSnap.data().status !== "scheduled") {
+        console.log(`[Scheduler] Rota ${schedId} ja foi processada por outra sessao.`);
+        return;
+      }
+
+      // Marcar como enviada ANTES de criar no history (evita duplicatas)
+      await updateDoc(schedDocRef, { status: "sent", sentAt: serverTimestamp() });
+
+      // Criar a rota no history do motorista
+      const routeData = {
+        points: schedData.points || [],
+        distance: "\u2014",
+        time: "\u2014",
+        stopsCount: schedData.stopsCount || 0,
+        polyline: "",
+        mapsUrl: schedData.mapsUrl || "",
+        status: "Pendente",
+        createdAt: serverTimestamp(),
+        assignedBy: currentUser.uid,
+        assignedByName: currentUser.displayName || currentUser.email || 'Admin'
+      };
+      if (schedData.note) routeData.note = schedData.note;
+
+      const newRouteRef = await addDoc(collection(db, "users", driverUid, "history"), routeData);
+
+      // Calcular trajeto OSRM em background
+      window.calculateOSRMBackground(newRouteRef, routeData.points);
+
+      console.log(`[Scheduler] \u2705 Rota ${schedId} despachada para ${driverUid}`);
+    } catch(e) {
+      // Se falhou, remover do set para tentar novamente no proximo ciclo
+      window._dispatchedScheduleIds.delete(schedId);
+      console.warn(`[Scheduler] Erro ao despachar rota ${schedId}:`, e);
+    }
+  };
+
+  // Funcao que agenda um setTimeout preciso para uma rota
+  const scheduleTimerForRoute = (driverUid, schedDocRef, schedData, schedId) => {
+    if (window._dispatchedScheduleIds.has(schedId)) return;
+    if (window._scheduledTimers[schedId]) clearTimeout(window._scheduledTimers[schedId]);
+
+    const scheduledDate = schedData.scheduledDate && schedData.scheduledDate.toDate
+      ? schedData.scheduledDate.toDate()
+      : (schedData.scheduledDate instanceof Date ? schedData.scheduledDate : null);
+
+    if (!scheduledDate) return;
+
+    const msUntil = scheduledDate.getTime() - Date.now();
+
+    if (msUntil <= 0) {
+      // Ja passou da hora — despachar imediatamente
+      dispatchSingleRoute(driverUid, schedDocRef, schedData, schedId);
+    } else if (msUntil <= 24 * 60 * 60 * 1000) {
+      // Nas proximas 24h — criar timer preciso
+      console.log(`[Scheduler] Timer criado para rota ${schedId}: disparo em ${Math.round(msUntil / 1000)}s`);
+      window._scheduledTimers[schedId] = setTimeout(() => {
+        dispatchSingleRoute(driverUid, schedDocRef, schedData, schedId);
+      }, msUntil);
+    }
+    // Se for > 24h, o poll de 60s vai pegar quando estiver mais perto
+  };
+
+  // ── CAMADA 1: onSnapshot em tempo real ──
+  // Escuta mudancas na colecao scheduledRoutes de cada motorista
+  const setupListenerForDriver = (driverUid) => {
+    const q = query(
+      collection(db, "users", driverUid, "scheduledRoutes"),
+      where("status", "==", "scheduled")
+    );
+
+    const unsub = onSnapshot(q, (snapshot) => {
+      // Rastrear IDs atuais nesta snapshot para limpar timers de rotas removidas/alteradas
+      const currentIds = new Set();
+      
+      snapshot.docChanges().forEach((change) => {
+        const docSnap = change.doc;
+        const schedId = docSnap.id;
+        
+        if (change.type === "removed" || (change.type === "modified" && docSnap.data().status !== "scheduled")) {
+          if (window._scheduledTimers[schedId]) {
+            clearTimeout(window._scheduledTimers[schedId]);
+            delete window._scheduledTimers[schedId];
+          }
+        } else {
+          // Added ou Modified
+          const data = docSnap.data();
+          const schedDocRef = docSnap.ref;
+          scheduleTimerForRoute(driverUid, schedDocRef, data, schedId);
+        }
+      });
+    }, (err) => {
+      console.warn(`[Scheduler] Erro no listener de ${driverUid}:`, err);
+    });
+
+    window._scheduleListenerUnsubs.push(unsub);
+  };
+
+  // Configurar listeners baseado no papel do usuario
+  if (window.userRole === 'admin') {
+    // Admin: escutar rotas de todos os motoristas vinculados
+    const driversQ = query(collection(db, "users"), where("adminId", "==", window.companyId || currentUser.uid));
+    getDocs(driversQ).then(driversSnap => {
+      driversSnap.forEach(driverDoc => {
+        if (driverDoc.data().role === 'driver') {
+          setupListenerForDriver(driverDoc.id);
+        }
+      });
+      // Tambem escutar as proprias rotas do admin (caso tenha)
+      setupListenerForDriver(currentUser.uid);
+      console.log(`[Scheduler] Listeners ativos para ${driversSnap.size} motorista(s)`);
+    }).catch(e => console.warn("[Scheduler] Erro ao buscar motoristas:", e));
+  } else {
+    // Driver: escutar apenas suas proprias rotas
+    setupListenerForDriver(currentUser.uid);
+  }
+
+  // ── CAMADA 2: Poll de seguranca a cada 60s ──
+  // Pega rotas que o onSnapshot pode ter perdido (ex: adicionadas offline)
+  window._dispatchPollInterval = setInterval(async () => {
+    try {
+      await window.checkAndDispatchScheduledRoutes();
+    } catch(e) { /* silencioso */ }
+  }, 60000);
+
+  // Executar checagem imediata
+  setTimeout(() => window.checkAndDispatchScheduledRoutes(), 2000);
+
+  // ── CAMADA 3: visibilitychange — re-verificar quando a aba volta ao foco ──
+  if (!window._visibilitySchedulerBound) {
+    window._visibilitySchedulerBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && currentUser) {
+        console.log("[Scheduler] Aba reativada — re-verificando rotas agendadas...");
+        window.checkAndDispatchScheduledRoutes();
+      }
+    });
+  }
+};
+
+// ── Funcao de fallback/poll ──
 window.checkAndDispatchScheduledRoutes = async function() {
   if (!currentUser) return;
   const now = new Date();
 
-  // Função auxiliar para disparar rotas de um UID específico
-  const dispatchForDriver = async (driverUid, assignedByName) => {
+  const dispatchForDriver = async (driverUid) => {
     try {
+      // ✅ Apenas filtro por status (index simples, sem index composto)
       const sq = query(
         collection(db, "users", driverUid, "scheduledRoutes"),
-        where("status", "==", "scheduled"),
-        where("scheduledDate", "<=", now)
+        where("status", "==", "scheduled")
       );
       const sSnap = await getDocs(sq);
-      
+
       for (const schedSnap of sSnap.docs) {
         const data = schedSnap.data();
-        
-        // Evitar concorrência
+
+        // Converter Timestamp do Firestore para Date
+        const scheduledDate = data.scheduledDate && data.scheduledDate.toDate
+          ? data.scheduledDate.toDate()
+          : (data.scheduledDate instanceof Date ? data.scheduledDate : null);
+
+        // ✅ Filtrar por data em JavaScript — sem necessidade de índice composto
+        if (!scheduledDate || scheduledDate > now) continue;
+
+        const schedId = schedSnap.id;
+        if (window._dispatchedScheduleIds.has(schedId)) continue;
+        window._dispatchedScheduleIds.add(schedId);
+
+        // Verificar novamente o status (anti-concorrencia entre abas)
+        const freshSnap = await getDoc(schedSnap.ref);
+        if (!freshSnap.exists() || freshSnap.data().status !== "scheduled") continue;
+
         await updateDoc(schedSnap.ref, { status: "sent", sentAt: serverTimestamp() });
 
         const routeData = {
           points: data.points || [],
-          distance: "—",
-          time: "—",
+          distance: "\u2014",
+          time: "\u2014",
           stopsCount: data.stopsCount || 0,
           polyline: "",
           mapsUrl: data.mapsUrl || "",
           status: "Pendente",
           createdAt: serverTimestamp(),
           assignedBy: currentUser.uid,
-          assignedByName: assignedByName
+          assignedByName: currentUser.displayName || currentUser.email || 'Admin'
         };
         if (data.note) routeData.note = data.note;
 
-        await addDoc(collection(db, "users", driverUid, "history"), routeData);
-        console.log("Rota Auto-Despachada para", driverUid);
+        const newRouteRef = await addDoc(collection(db, "users", driverUid, "history"), routeData);
+        window.calculateOSRMBackground(newRouteRef, routeData.points);
+        console.log(`[Scheduler] ✅ Rota ${schedId} despachada para ${driverUid}`);
       }
     } catch(e) {
-      console.warn("Erro no check de scheduledRoutes", e);
+      console.warn("[Scheduler] Erro ao checar scheduledRoutes de", driverUid, ":", e);
     }
   };
 
   if (window.userRole === 'driver') {
-    await dispatchForDriver(currentUser.uid, 'Admin');
+    await dispatchForDriver(currentUser.uid);
   } else if (window.userRole === 'admin') {
     try {
       const q = query(collection(db, "users"), where("adminId", "==", window.companyId || currentUser.uid));
       const driversSnap = await getDocs(q);
       const promises = [];
       driversSnap.forEach(docSnap => {
-         if(docSnap.data().role === 'driver') {
-           promises.push(dispatchForDriver(docSnap.id, currentUser.displayName || currentUser.email || 'Admin'));
-         }
+        if (docSnap.data().role === 'driver') {
+          promises.push(dispatchForDriver(docSnap.id));
+        }
       });
+      promises.push(dispatchForDriver(currentUser.uid));
       await Promise.all(promises);
     } catch(e) {
-      console.warn("Erro auto dispatch routes", e);
+      console.warn("[Scheduler] Erro auto dispatch:", e);
     }
   }
 };
@@ -2819,7 +3029,11 @@ async function loadAdminHubData() {
               
               <div style="background: var(--pr-bg); border-radius: 8px; padding: 10px; margin-top: 4px; border: 1px dashed var(--pr-border);">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div style="font-size:11px; font-weight: 700; color: var(--pr-text);">📍 ${r.stopsCount || 0} Paradas</div>
+                  <div style="font-size:11px; font-weight: 700; color: var(--pr-text);">
+                    📍 ${r.stopsCount || 0} Paradas 
+                    ${r.distance && r.distance !== "—" ? ` | 🛣️ ${r.distance}km` : ''} 
+                    ${r.time && r.time !== "—" ? ` | ⏱️ ${r.time}min` : ''}
+                  </div>
                   <div id="hub-nearest-${userDoc.id}" style="font-size:9px; font-weight:700; color:${stBadgeColor};"></div>
                 </div>
                 ${startedTimeHTML}
@@ -3273,28 +3487,32 @@ const _spyRoleCheckInterval = setInterval(() => {
 }, 1000);
 
 
-// ── ADMIN SIDE: modal de espionagem com Google Maps ──
+// ── ADMIN SIDE: modal de espionagem com Leaflet ──
 (function() {
   let spyMap = null;
-  let spyMarkers = {}; // uid → { marker, infoEl }
+  let spyMarkers = {}; // uid → L.marker
   let spyRtdbRef = null;
   let spyCenterUid = null;
+  let spyPolylines = {}; // uid → L.polyline
+  let tileLayer = null;
 
   const DRIVER_COLORS = ['#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63'];
   function colorForIndex(i) { return DRIVER_COLORS[i % DRIVER_COLORS.length]; }
 
   function buildDriverMarkerSVG(initial, color) {
     return `
-      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="50" viewBox="0 0 40 50">
-        <defs>
-          <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.4)"/>
-          </filter>
-        </defs>
-        <path d="M20 0 C9 0 0 9 0 20 C0 32 20 50 20 50 C20 50 40 32 40 20 C40 9 31 0 20 0Z" fill="${color}" filter="url(#sh)"/>
-        <circle cx="20" cy="19" r="11" fill="white" opacity="0.95"/>
-        <text x="20" y="24" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="13" font-weight="800" fill="${color}">${initial}</text>
-      </svg>
+      <div style="position: relative; width: 40px; height: 50px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="50" viewBox="0 0 40 50">
+          <defs>
+            <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.4)"/>
+            </filter>
+          </defs>
+          <path d="M20 0 C9 0 0 9 0 20 C0 32 20 50 20 50 C20 50 40 32 40 20 C40 9 31 0 20 0Z" fill="${color}" filter="url(#sh)"/>
+          <circle cx="20" cy="19" r="11" fill="white" opacity="0.95"/>
+          <text x="20" y="24" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="13" font-weight="800" fill="${color}">${initial}</text>
+        </svg>
+      </div>
     `.trim();
   }
 
@@ -3306,46 +3524,44 @@ const _spyRoleCheckInterval = setInterval(() => {
     return `${Math.floor(sec/3600)}h atrás`;
   }
 
-  function initSpyMap() {
-    if (spyMap) return;
-    // Default center: Brazil center-ish
-    const defaultCenter = { lat: -15.78, lng: -47.93 };
-    spyMap = new google.maps.Map(document.getElementById('spy-map'), {
-      zoom: 13,
-      center: defaultCenter,
-      mapTypeId: 'roadmap',
-      styles: document.body.classList.contains('dm') ? DARK_MAP_STYLE : [],
-      disableDefaultUI: false,
-      zoomControl: true,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: false,
-    });
+  function updateMapTheme() {
+    if (!spyMap) return;
+    if (tileLayer) spyMap.removeLayer(tileLayer);
+
+    const isDark = document.body.classList.contains('dm');
+    const url = isDark 
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    
+    const attribution = isDark 
+        ? '&copy; <a href="https://carto.com/">CARTO</a>'
+        : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+
+    tileLayer = L.tileLayer(url, { attribution }).addTo(spyMap);
   }
 
-  // Dark map style (same approach as app)
-  const DARK_MAP_STYLE = [
-    {elementType:'geometry',stylers:[{color:'#1d2c4d'}]},
-    {elementType:'labels.text.fill',stylers:[{color:'#8ec3b9'}]},
-    {elementType:'labels.text.stroke',stylers:[{color:'#1a3646'}]},
-    {featureType:'road',elementType:'geometry',stylers:[{color:'#304a7d'}]},
-    {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#98a5be'}]},
-    {featureType:'water',elementType:'geometry',stylers:[{color:'#0e1626'}]},
-    {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#4e6d70'}]},
-  ];
+  function initSpyMap() {
+    if (spyMap) {
+      updateMapTheme();
+      return;
+    }
+    
+    spyMap = L.map('spy-map', {
+      zoomControl: true,
+      attributionControl: true
+    }).setView([-15.78, -47.93], 13);
 
-  let spyPolylines = {}; // uid → google.maps.Polyline
+    updateMapTheme();
+  }
 
   window.drawSpyRoute = async function(uid, missionId, color) {
     if (!spyMap || !uid || !missionId) return;
     
-    // Se já tem uma linha aparecendo, remove
     if (spyPolylines[uid]) {
-      spyPolylines[uid].setMap(null);
+      spyMap.removeLayer(spyPolylines[uid]);
     }
 
     try {
-      // Busca os pontos da missão no Firestore
       const missionRef = doc(db, 'users', uid, 'history', missionId);
       const snap = await getDoc(missionRef);
       if (!snap.exists()) return;
@@ -3354,21 +3570,21 @@ const _spyRoleCheckInterval = setInterval(() => {
       const points = mData.points || [];
       if (points.length === 0) return;
 
-      const pathCoords = points.filter(p => p.lat && p.lng).map(p => ({ lat: p.lat, lng: p.lng }));
+      let pathCoords = [];
+      if (mData.polyline && window.decodePolyline) {
+        pathCoords = window.decodePolyline(mData.polyline);
+      } else {
+        pathCoords = points.filter(p => p.lat && p.lng).map(p => [p.lat, p.lng]);
+      }
       
-      const poly = new google.maps.Polyline({
-        path: pathCoords,
-        geodesic: true,
-        strokeColor: color,
-        strokeOpacity: 0.8,
-        strokeWeight: 4,
-        map: spyMap
-      });
+      const poly = L.polyline(pathCoords, {
+        color: color,
+        weight: 4,
+        opacity: 0.8,
+        dashArray: mData.polyline ? null : '10, 5' // Linha continua se tiver trajeto real, tracejada se for linha reta
+      }).addTo(spyMap);
 
       spyPolylines[uid] = poly;
-
-      // Opcional: Adicionar marcadores simples para as paradas?
-      // Por enquanto vamos manter apenas a linha para não poluir muito.
     } catch(e) {
       console.warn("Erro ao desenhar rota espiã:", e);
     }
@@ -3420,11 +3636,10 @@ const _spyRoleCheckInterval = setInterval(() => {
       pill.onclick = () => {
         spyCenterUid = uid;
         if (spyMap && data.lat && data.lng) {
-          spyMap.panTo({ lat: data.lat, lng: data.lng });
-          spyMap.setZoom(16);
+          spyMap.flyTo([data.lat, data.lng], 16);
           if (data.missionId) window.drawSpyRoute(uid, data.missionId, color);
         }
-        updateDriverPills(driversData); // re-render pills with new selection
+        updateDriverPills(driversData);
       };
       bar.appendChild(pill);
     });
@@ -3432,20 +3647,19 @@ const _spyRoleCheckInterval = setInterval(() => {
 
   function updateDriverMarkers(driversData) {
     if (!spyMap) return;
-    const bounds = new google.maps.LatLngBounds();
-    let hasAny = false;
+    const latlngs = [];
 
     // Remove markers for drivers no longer present
     Object.keys(spyMarkers).forEach(uid => {
       if (!driversData[uid]) {
-        spyMarkers[uid].marker.setMap(null);
+        spyMap.removeLayer(spyMarkers[uid]);
         delete spyMarkers[uid];
       }
     });
 
     Object.entries(driversData).forEach(([uid, data], i) => {
       if (!data.lat || !data.lng) return;
-      const pos = { lat: data.lat, lng: data.lng };
+      const pos = [data.lat, data.lng];
       const color = colorForIndex(i);
       const name = data.name || 'Motorista';
       const initial = name.charAt(0).toUpperCase();
@@ -3455,68 +3669,49 @@ const _spyRoleCheckInterval = setInterval(() => {
       const nearest = data.nearestStop;
       const nearestHTML = nearest ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:4px;">📍 Próximo: ${nearest.name} (${nearest.distance}km)</div>` : '';
 
-      const svgStr = buildDriverMarkerSVG(initial, color);
-      const svgUrl = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svgStr);
+      const svgIcon = L.divIcon({
+        html: buildDriverMarkerSVG(initial, color),
+        className: 'custom-driver-marker',
+        iconSize: [40, 50],
+        iconAnchor: [20, 50],
+        popupAnchor: [0, -45]
+      });
+
+      const popupContent = `
+        <div style="font-family:Inter,Arial,sans-serif;padding:4px 2px;min-width:160px;">
+          <div style="font-weight:700;font-size:13px;color:#1a2b3d;margin-bottom:4px;">${escapeHTML(name)}</div>
+          <div style="font-size:11px;color:#6B7C8E;margin-bottom:2px;">🚗 ${speed} km/h</div>
+          <div style="font-size:11px;color:#6B7C8E;margin-bottom:4px;">⏱ ${ago}</div>
+          ${nearestHTML}
+          <a href="https://www.google.com/maps?q=${data.lat},${data.lng}" target="_blank"
+            style="font-size:11px;color:#1A6BAF;font-weight:600;">Ver no Google Maps ↗</a>
+        </div>
+      `;
 
       if (spyMarkers[uid]) {
-        // Update position
-        spyMarkers[uid].marker.setPosition(pos);
-        spyMarkers[uid].marker.setTitle(`${name} — ${speed} km/h`);
-        spyMarkers[uid].infoWin.setContent(`
-          <div style="font-family:Inter,Arial,sans-serif;padding:4px 2px;min-width:160px;">
-            <div style="font-weight:700;font-size:13px;color:#1a2b3d;margin-bottom:4px;">${escapeHTML(name)}</div>
-            <div style="font-size:11px;color:#6B7C8E;margin-bottom:2px;">🚗 ${speed} km/h</div>
-            <div style="font-size:11px;color:#6B7C8E;margin-bottom:4px;">⏱ ${ago}</div>
-            ${nearestHTML}
-            <a href="https://www.google.com/maps?q=${data.lat},${data.lng}" target="_blank"
-              style="font-size:11px;color:#1A6BAF;font-weight:600;">Ver no Google Maps ↗</a>
-          </div>
-        `);
+        spyMarkers[uid].setLatLng(pos);
+        spyMarkers[uid].setIcon(svgIcon);
+        spyMarkers[uid].setPopupContent(popupContent);
       } else {
-        // Create new marker
-        const marker = new google.maps.Marker({
-          position: pos,
-          map: spyMap,
-          title: `${name} — ${speed} km/h`,
-          icon: { url: svgUrl, scaledSize: new google.maps.Size(40, 50), anchor: new google.maps.Point(20, 50) },
-          zIndex: 1000 + i
-        });
-
-        // Info window
-        const infoWin = new google.maps.InfoWindow({
-          content: `
-            <div style="font-family:Inter,Arial,sans-serif;padding:4px 2px;min-width:160px;">
-              <div style="font-weight:700;font-size:13px;color:#1a2b3d;margin-bottom:4px;">${escapeHTML(name)}</div>
-              <div style="font-size:11px;color:#6B7C8E;margin-bottom:2px;">🚗 ${speed} km/h</div>
-              <div style="font-size:11px;color:#6B7C8E;margin-bottom:4px;">⏱ ${ago}</div>
-              ${nearestHTML}
-              <a href="https://www.google.com/maps?q=${data.lat},${data.lng}" target="_blank"
-                style="font-size:11px;color:#1A6BAF;font-weight:600;">Ver no Google Maps ↗</a>
-            </div>
-          `
-        });
-        marker.addListener('click', () => {
-          infoWin.open(spyMap, marker);
+        const marker = L.marker(pos, { icon: svgIcon }).addTo(spyMap);
+        marker.bindPopup(popupContent);
+        marker.on('click', () => {
           spyCenterUid = uid;
+          updateDriverPills(driversData);
         });
-
-        spyMarkers[uid] = { marker, infoWin };
+        spyMarkers[uid] = marker;
       }
 
-      bounds.extend(pos);
-      hasAny = true;
+      latlngs.push(pos);
     });
 
-    // Auto-fit map if no manual selection, or follow selected driver
-    if (hasAny) {
+    if (latlngs.length > 0) {
       if (spyCenterUid && driversData[spyCenterUid]) {
         const d = driversData[spyCenterUid];
-        spyMap.panTo({ lat: d.lat, lng: d.lng });
-      } else if (Object.keys(spyMarkers).length > 0) {
-        // Fit all markers only on first load
-        if (Object.keys(spyMarkers).length === Object.keys(driversData).length && !spyCenterUid) {
-          spyMap.fitBounds(bounds, { padding: 60 });
-        }
+        spyMap.panTo([d.lat, d.lng]);
+      } else if (!spyCenterUid && Object.keys(spyMarkers).length > 0) {
+        const bounds = L.latLngBounds(latlngs);
+        spyMap.fitBounds(bounds, { padding: [50, 50] });
       }
     }
   }
@@ -3525,11 +3720,9 @@ const _spyRoleCheckInterval = setInterval(() => {
     document.getElementById('liveSpyModal').classList.add('active');
     spyCenterUid = targetUid || null;
 
-    // Init map on first open
     setTimeout(() => {
       initSpyMap();
 
-      // Subscribe to RTDB for this admin's drivers
       const adminKey = window.companyId || (currentUser && currentUser.uid);
       if (!adminKey) {
         document.getElementById('spy-status-txt').textContent = 'Erro: admin não identificado';
@@ -3542,34 +3735,29 @@ const _spyRoleCheckInterval = setInterval(() => {
         updateDriverPills(raw);
         updateDriverMarkers(raw);
         
-        // If we have a targetUid and it's in the data, center once
         if (spyCenterUid && raw[spyCenterUid]) {
           const loc = raw[spyCenterUid];
           if (loc.lat && loc.lng && spyMap) {
-            spyMap.setCenter({ lat: loc.lat, lng: loc.lng });
-            spyMap.setZoom(16);
-            spyCenterUid = null; // Clear so it doesn't keep centering if user moves map
+            spyMap.setView([loc.lat, loc.lng], 16);
+            spyCenterUid = null;
           }
         }
       }, (err) => {
         console.warn('RTDB spy error:', err);
         document.getElementById('spy-status-txt').textContent = 'Erro ao conectar ao RTDB';
       });
-    }, 150); 
+    }, 200); 
   };
 
   window.closeLiveSpy = function() {
     document.getElementById('liveSpyModal').classList.remove('active');
-    // Unsubscribe from RTDB
     if (spyRtdbRef) {
       off(spyRtdbRef);
       spyRtdbRef = null;
     }
-    // Clear polylines
-    Object.values(spyPolylines).forEach(p => p.setMap(null));
+    Object.values(spyPolylines).forEach(p => spyMap.removeLayer(p));
     spyPolylines = {};
-    // Clear markers
-    Object.values(spyMarkers).forEach(m => m.marker.setMap(null));
+    Object.values(spyMarkers).forEach(m => spyMap.removeLayer(m));
     spyMarkers = {};
   };
 
@@ -3586,7 +3774,6 @@ const _spyRoleCheckInterval = setInterval(() => {
     listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">⏳ Analisando rotas...</div>';
     
     try {
-      // Query concluded routes
       const q = query(
         collection(db, "users", uid, "history"),
         orderBy("createdAt", "desc"),
