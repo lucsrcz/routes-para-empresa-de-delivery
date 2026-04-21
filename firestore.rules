@@ -96,6 +96,27 @@ service cloud.firestore {
           (isAdmin() && effectiveAdminId(request.auth.uid) == userId)
         );
       }
+
+      match /scheduledRoutes/{routeId} {
+        allow read: if request.auth != null && (
+          request.auth.uid == userId || 
+          isMyAdmin(userId) ||
+          (isAdmin() && effectiveAdminId(request.auth.uid) == userId)
+        );
+        allow create: if request.auth != null && (
+          request.auth.uid == userId || 
+          isMyAdmin(userId)
+        );
+        allow update: if request.auth != null && (
+          request.auth.uid == userId || 
+          isMyAdmin(userId)
+        );
+        allow delete: if request.auth != null && (
+          request.auth.uid == userId || 
+          isMyAdmin(userId) ||
+          (isAdmin() && effectiveAdminId(request.auth.uid) == userId)
+        );
+      }
     }
 
     // ═══ INVITES COLLECTION ═══
@@ -112,6 +133,8 @@ service cloud.firestore {
       allow update: if request.auth != null &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado']) &&
         request.resource.data.usado == true;
+        
+      allow delete: if request.auth != null && isAdmin() && resource.data.adminId == request.auth.uid;
     }
 
     // ═══ ADMIN KEYS COLLECTION ═══

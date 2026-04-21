@@ -1,6 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 import { getFirestore, collection, addDoc, getDocs, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+import { getDatabase, ref as rtdbRef, set as rtdbSet, onValue, off } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
 
 const firebaseConfig = {
   projectId: "rotas-cabun-app",
@@ -9,12 +10,14 @@ const firebaseConfig = {
   apiKey: "AIzaSyCwFuaNuzw50bn9CV2RnP3xTx8TNcFr6D4",
   authDomain: "rotas-cabun-app.firebaseapp.com",
   messagingSenderId: "1017676204969",
-  measurementId: "G-YDQLXK9YHY"
+  measurementId: "G-YDQLXK9YHY",
+  databaseURL: "https://rotas-cabun-app-default-rtdb.firebaseio.com"
 };
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const rtdb = getDatabase(app);
 let currentUser = null;
 let allLocations = [];
 let builderSelectedPoints = [];
@@ -94,6 +97,22 @@ async function updateWeather(lat, lon) {
 window.userRole = "driver"; // Padrão global
 
 // ══════════════════════════════════════════════════════════
+// GLOBAL FAIL-SAFE LOADER
+// ══════════════════════════════════════════════════════════
+(function() {
+  const hideLdr = () => {
+    const ldr = document.getElementById('appLoader');
+    if (ldr) ldr.style.display = 'none';
+    const shl = document.getElementById('shell');
+    if (shl) shl.style.visibility = 'visible';
+  };
+  window._loaderFailSafe = setTimeout(() => {
+    console.warn("Global Fail-safe: Excedido tempo de inicialização.");
+    hideLdr();
+  }, 10000);
+})();
+
+// ══════════════════════════════════════════════════════════
 // ROLE-BASED UI — controla o que admin e driver vêem
 // ══════════════════════════════════════════════════════════
 
@@ -117,6 +136,8 @@ async function applyRoleUI() {
     if (driverPanel) driverPanel.style.display = 'none';
     if (adminHubBtn) adminHubBtn.style.display = 'flex';
     if (fleetManageBtn) fleetManageBtn.style.display = 'flex';
+    const liveSpyBtn = document.getElementById('liveSpyBtn');
+    if (liveSpyBtn) liveSpyBtn.style.display = 'flex';
     if (bottomNavAdmin) bottomNavAdmin.style.display = '';
     if (bottomNavDriver) bottomNavDriver.style.display = 'none';
     if (adminArea) adminArea.style.display = 'flex';
@@ -135,7 +156,10 @@ async function applyRoleUI() {
     window._fleetDrivers = [];
     try {
       const q = query(collection(db, "users"), where("adminId", "==", window.companyId));
-      const querySnapshot = await getDocs(q);
+      const querySnapshot = await getDocs(q).catch(e => {
+        console.warn("Falha ao buscar motoristas (index possível?):", e);
+        return { empty: true, forEach: () => {} };
+      });
       const driverListEl = document.getElementById('builderDriverList');
       window._selectedDriverUid = '';
 
@@ -188,7 +212,7 @@ async function applyRoleUI() {
         }
       }
     } catch(e) {
-      console.warn("Erro ao carregar lista de motoristas:", e);
+      console.warn("Erro ao carregar lista de motoristas em applyRoleUI:", e);
     }
 
     // Cancel old driver listeners
@@ -360,24 +384,44 @@ function loadDriverMissions() {
   });
 }
 
+// --- UNIFIED STATUS HELPER ---
+window.updateRouteStatus = async function(missionId, status, extraData = {}) {
+  if (!currentUser || !missionId) return;
+  
+  const updatePayload = {
+    status: status,
+    ...extraData
+  };
+
+  try {
+    // 1. Update Subcollection (History)
+    await updateDoc(doc(db, "users", currentUser.uid, "history", missionId), updatePayload);
+    
+    // 2. Update Parent User Doc (Denormalization to trigger Admin Hub Real-time)
+    await updateDoc(doc(db, "users", currentUser.uid), {
+      currentStatus: status,
+      lastStatusUpdate: serverTimestamp()
+    });
+    
+    console.log(`Status sincronizado: ${status}`);
+  } catch(e) {
+    console.warn("Erro ao sincronizar status:", e);
+    throw e;
+  }
+};
+
 window.startMission = async function(missionId) {
   try {
-    await updateDoc(doc(db, "users", currentUser.uid, "history", missionId), {
-      status: "Em Rota",
-      startedAt: serverTimestamp()
-    });
+    await window.updateRouteStatus(missionId, "Em Rota", { startedAt: serverTimestamp() });
   } catch(e) {
     console.warn("Erro ao iniciar rota:", e);
   }
 };
 
-// Function moved to bottom to merge with admin logic
 window.finishMission = async function(missionId) {
   if (confirm("Deseja marcar esta rota como Concluída?")) {
     try {
-      await updateDoc(doc(db, "users", currentUser.uid, "history", missionId), {
-        status: "Concluída"
-      });
+      await window.updateRouteStatus(missionId, "Concluída", { completedAt: serverTimestamp() });
     } catch(e) {
       alert("Erro ao concluir: " + e.message);
     }
@@ -411,7 +455,13 @@ window.renameDriver = async function(uid, oldName) {
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
-    window.location.href = "routes_login.html";
+    // Somente redirecionar se realmente não houver usuário após um pequeno delay para evitar loops
+    setTimeout(() => {
+      if (!auth.currentUser) {
+        console.log("Nenhum usuário detectado. Redirecionando para login...");
+        window.location.href = "routes_login.html";
+      }
+    }, 1000);
   } else {
     currentUser = user;
     
@@ -448,7 +498,9 @@ onAuthStateChanged(auth, async (user) => {
         if (loader) loader.style.display = 'none';
         const shell = document.getElementById('shell');
         if (shell) shell.style.visibility = 'visible';
+        if (window._loaderFailSafe) clearTimeout(window._loaderFailSafe);
       }
+
 
       // ══════════════════════════════════════════════════════
       // CONVITE VIA URL — funciona para QUALQUER estado de conta
@@ -470,6 +522,7 @@ onAuthStateChanged(auth, async (user) => {
             await updateDoc(inviteRef, { usado: true });
             window.userRole = 'driver';
             window.adminId = inviteData.adminId;
+            window.companyId = inviteData.adminId;
 
             // Limpar o ?convite= da URL sem recarregar
             window.history.replaceState({}, document.title, window.location.pathname);
@@ -532,6 +585,12 @@ onAuthStateChanged(auth, async (user) => {
 
     // Load locations for admin or driver
     loadLocations();
+
+    // Iniciar checagem automática de rotas agendadas (a cada 30 segundos)
+    if (window._dispatchInterval) clearInterval(window._dispatchInterval);
+    window._dispatchInterval = setInterval(window.checkAndDispatchScheduledRoutes, 30000);
+    // Executar imediatamente a primeira checagem
+    setTimeout(window.checkAndDispatchScheduledRoutes, 3000);
   }
 });
 
@@ -716,6 +775,7 @@ window.openLocModal = function() {
 };
 
 window.openEditModal = function(id, name, link) {
+  if (typeof window.closeSearchModal === 'function') window.closeSearchModal();
   document.getElementById('locModal').classList.add('active');
   document.getElementById('locModalTitle').textContent = "Editar Local";
   document.getElementById('locEditingId').value = id;
@@ -958,6 +1018,8 @@ function loadLocations() {
     if(!snapshot.empty) {
       window.activeRouteId = snapshot.docs[0].id;
       const data = snapshot.docs[0].data();
+      window.activeRouteData = data; // Reference for the driver modal
+      
       const mD = document.getElementById('mapDist');
       const mT = document.getElementById('mapTime');
       const mS = document.getElementById('mapStops');
@@ -1032,6 +1094,8 @@ window.closeRouteChoiceModal = function() {
 window.openBuilderModal = function() {
   builderSelectedPoints = [];
   document.getElementById('builderSearch').value = '';
+  const ds = document.getElementById('builderDriverSearch');
+  if (ds) ds.value = '';
   document.getElementById('builderModal').classList.add('active');
   renderBuilderSequence();
   renderBuilderLocations();
@@ -1046,6 +1110,10 @@ window.openBuilderModal = function() {
   } else {
     window._selectedDriverUid = '';
     window.updateGenerateBtn();
+  }
+  
+  if (window.filterBuilderDrivers) {
+    window.filterBuilderDrivers();
   }
 };
 
@@ -1089,6 +1157,19 @@ window.updateGenerateBtn = function() {
     genBtn.textContent = '🗺 Salvar Rota';
     genBtn.style.background = '#1A6BAF';
   }
+};
+
+window.filterBuilderDrivers = function() {
+  const term = (document.getElementById('builderDriverSearch').value || '').toLowerCase();
+  const items = document.querySelectorAll('.bdr-item');
+  items.forEach(item => {
+    const name = (item.dataset.name || '').toLowerCase();
+    if (name.includes(term)) {
+      item.style.display = 'flex';
+    } else {
+      item.style.display = 'none';
+    }
+  });
 };
 
 window.filterBuilderLocations = function() {
@@ -1234,7 +1315,7 @@ window.generateManualRoute = async function() {
     let targetDriverName = '';
     if (window.userRole === "admin" && window._selectedDriverUid) {
       targetUid = window._selectedDriverUid;
-      const selectedCard = document.querySelector('.builder-driver-card.selected');
+      const selectedCard = document.querySelector('.bdr-item.selected');
       targetDriverName = selectedCard ? selectedCard.dataset.name : 'Motorista';
     }
 
@@ -1354,10 +1435,8 @@ window.openRouteFromCard = function(evt) {
     const routeUrl = window.currentRouteUrl;
     
     if (window.activeRouteId) {
-      // Atualiza o banco, mas SEM usar "await" para não atrasar a tela e cair no bloqueador de popups.
-      updateDoc(doc(db, "users", currentUser.uid, "history", window.activeRouteId), {
-        status: "Em Rota"
-      }).catch(e => console.warn("Falha ao atualizar status", e));
+      // Atualiza o banco e sincroniza com o admin
+      window.updateRouteStatus(window.activeRouteId, "Em Rota").catch(e => console.warn("Falha ao sincronizar status", e));
     }
 
     // Logo em seguida e na mesma fração de segundo, abrimos o Maps:
@@ -1373,8 +1452,142 @@ window.handleDailyCardClick = function() {
   if (window.userRole === 'admin') {
     window.openFleetPanel();
   } else {
-    window.openRouteFromCard();
+    if (!window.activeRouteData) {
+      alert("Nenhuma rota ativa no momento!");
+      return;
+    }
+    window.openDriverDailyRouteModal();
   }
+};
+
+window.openDriverDailyRouteModal = function() {
+  const modal = document.getElementById('driverDailyRouteModal');
+  const pointsContainer = document.getElementById('driverDailyRoutePoints');
+  const noteContent = document.getElementById('driverDailyRouteNote');
+  
+  if (!modal || !pointsContainer) return;
+  
+  // Set note
+  noteContent.textContent = window.activeRouteData.obs || "Nenhuma observação.";
+
+  // Populate points array (we clone it to avoid mutating original activeRouteData until "Ir" is clicked)
+  window.tempDriverRouteSequence = [];
+  if (window.activeRouteData.points && window.activeRouteData.points.length > 0) {
+    window.tempDriverRouteSequence = [...window.activeRouteData.points];
+  }
+
+  // Render points
+  window.renderDriverDailyRoutePoints();
+  
+  modal.classList.add('active');
+};
+
+window.closeDriverDailyRouteModal = function() {
+  const modal = document.getElementById('driverDailyRouteModal');
+  if (modal) modal.classList.remove('active');
+};
+
+window.renderDriverDailyRoutePoints = function() {
+  const c = document.getElementById('driverDailyRoutePoints');
+  if (!c) return;
+  c.innerHTML = "";
+  
+  const points = window.tempDriverRouteSequence;
+  
+  // We use similar styling to fleet route sorting, but adapted
+  points.forEach((pt, idx) => {
+    let div = document.createElement('div');
+    div.style.cssText = "display: flex; align-items: center; gap: 8px; padding: 10px; background: var(--pr-bg); border-radius: 6px; border: 1px solid var(--pr-border); cursor: grab;";
+    div.draggable = true;
+    
+    div.ondragstart = (e) => {
+      window.driverRouteDragSourceIndex = idx;
+      div.style.opacity = '0.5';
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/html", div.innerHTML);
+    };
+    
+    div.ondragover = (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      div.style.border = '2px dashed var(--pr-blue-mid)';
+    };
+    
+    div.ondragleave = (e) => {
+      div.style.border = '1px solid var(--pr-border)';
+    };
+    
+    div.ondrop = (e) => {
+      e.preventDefault();
+      div.style.border = '1px solid var(--pr-border)';
+      let targetIndex = idx;
+      let sourceIndex = window.driverRouteDragSourceIndex;
+      
+      if (sourceIndex !== targetIndex) {
+        let tempSequence = [...window.tempDriverRouteSequence];
+        let movedItem = tempSequence.splice(sourceIndex, 1)[0];
+        tempSequence.splice(targetIndex, 0, movedItem);
+        window.tempDriverRouteSequence = tempSequence;
+        window.renderDriverDailyRoutePoints();
+      }
+    };
+    
+    div.ondragend = (e) => {
+      div.style.opacity = '1';
+      div.style.border = '1px solid var(--pr-border)';
+    };
+
+    let numb = document.createElement('div');
+    numb.style.cssText = "background: var(--pr-blue-mid); color: #fff; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold;";
+    numb.textContent = (idx + 1);
+
+    let name = document.createElement('div');
+    name.style.cssText = "flex: 1; font-size: 13px; font-weight: 500; color: var(--pr-text);";
+    name.textContent = pt.name;
+
+    let handle = document.createElement('div');
+    handle.style.cssText = "color: var(--pr-text-muted); cursor: grab; font-size: 14px;";
+    handle.innerHTML = "☰";
+
+    div.appendChild(numb);
+    div.appendChild(name);
+    div.appendChild(handle);
+    c.appendChild(div);
+  });
+};
+
+window.startDriverDailyRoute = function() {
+  if (!window.activeRouteId) {
+    alert("Erro: ID da rota perdido.");
+    return;
+  }
+  if (!window.tempDriverRouteSequence || window.tempDriverRouteSequence.length === 0) {
+    alert("Nenhum ponto para rotear.");
+    return;
+  }
+
+  // 1. Generate Maps URL based on tempDriverRouteSequence
+  let mapsUrl = `https://www.google.com/maps/dir/?api=1`;
+  
+  // Last point is destination
+  const lastP = window.tempDriverRouteSequence[window.tempDriverRouteSequence.length - 1];
+  const wpUrls = window.tempDriverRouteSequence.slice(0, -1).map(p => encodeURIComponent(p.googleUrl || p.name));
+  
+  mapsUrl += `&destination=${encodeURIComponent(lastP.googleUrl || lastP.name)}&travelmode=driving`;
+  if (wpUrls.length > 0) {
+    mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
+  }
+
+  // 2. Mark route as "Em Rota" in Firestore and sync with Admin
+  window.updateRouteStatus(window.activeRouteId, "Em Rota").catch(e => console.warn("Falha ao sincronizar status", e));
+
+  // 3. Open URL
+  window.open(mapsUrl, '_blank');
+
+  // 4. Reload page to reset state so the driver sees the original route if they come back
+  setTimeout(() => {
+    window.location.reload();
+  }, 100);
 };
 
 // ══════════════════════════════════════════════════════════
@@ -1396,6 +1609,17 @@ window.openFleetPanel = function() {
 };
 
 window.closeFleetPanel = function() {
+  // Limpar listener de rotas agendadas
+  if (window._fpScheduledRoutesUnsub) {
+    window._fpScheduledRoutesUnsub();
+    window._fpScheduledRoutesUnsub = null;
+  }
+  // Resetar views para o estado inicial
+  const driversView = document.getElementById('fpDriversView');
+  const detailView = document.getElementById('fpDriverDetail');
+  if (driversView) driversView.style.display = '';
+  if (detailView) detailView.style.display = 'none';
+
   const panel = document.getElementById('fleetPanel');
   const card = document.getElementById('dailyRouteCard');
   const badge = document.getElementById('pdRouteDetails');
@@ -1425,38 +1649,146 @@ async function renderFleetDriverCards() {
       const displayName = u.apelido || u.nome || 'Sem nome';
       const initial = displayName.charAt(0).toUpperCase();
       const email = u.email || '';
+      const uid = docSnap.id;
 
-      // Checar última rota do motorista
-      let statusClass = 'idle';
-      let statusText = 'Sem rota';
-      let routeInfo = 'Nenhuma rota atribuída';
-
+      // Obter última rota ativa (history) para exibir detalhes
+      let lastRouteInfo = null;
       try {
-        const hq = query(collection(db, "users", docSnap.id, "history"), orderBy("createdAt", "desc"), limit(1));
+        const hq = query(collection(db, "users", uid, "history"), orderBy("createdAt", "desc"), limit(1));
         const hSnap = await getDocs(hq);
         if (!hSnap.empty) {
-          const routeData = hSnap.docs[0].data();
-          const st = routeData.status || 'Pendente';
-          if (st === 'Pendente') { statusClass = 'pending'; statusText = 'Pendente'; }
-          else if (st === 'Concluída') { statusClass = 'active'; statusText = 'Concluída'; }
-          else { statusClass = 'active'; statusText = st; }
-          routeInfo = (routeData.stopsCount || 0) + ' parada' + ((routeData.stopsCount || 0) > 1 ? 's' : '');
+          const hData = hSnap.docs[0].data();
+          lastRouteInfo = {
+            stops: hData.stopsCount || (hData.points ? hData.points.length : 0),
+            distance: hData.distance || '—',
+            time: hData.time || '—',
+            status: hData.status || 'Pendente'
+          };
         }
       } catch(e) { /* silencioso */ }
 
+      // Obter rotas agendadas para determinar status
+      let scheduledCountScheduled = 0;
+      let scheduledCountExpired = 0;
+      let nextScheduledDate = null;
+      let nextScheduledStops = 0;
+      try {
+        const sq = collection(db, "users", uid, "scheduledRoutes");
+        const sSnap = await getDocs(sq);
+        const now = new Date();
+        
+        let foundFirst = false;
+        
+        // Colocar tudo em um array para podermos ordenar no Javascript sem depender do index no Firebase
+        let allSchedules = [];
+        sSnap.forEach(snap => {
+          const d = snap.data();
+          if (d.status === 'scheduled') {
+            allSchedules.push(d);
+          }
+        });
+
+        // Ordena por data (ascendente)
+        allSchedules.sort((a, b) => {
+          const tA = a.scheduledDate && a.scheduledDate.toDate ? a.scheduledDate.toDate().getTime() : 0;
+          const tB = b.scheduledDate && b.scheduledDate.toDate ? b.scheduledDate.toDate().getTime() : 0;
+          return tA - tB;
+        });
+
+        for (const d of allSchedules) {
+          const sDate = d.scheduledDate && d.scheduledDate.toDate ? d.scheduledDate.toDate() : null;
+          if (!foundFirst && sDate) {
+            nextScheduledDate = sDate;
+            nextScheduledStops = d.stopsCount || (d.points ? d.points.length : 0);
+            foundFirst = true;
+          }
+          if (sDate && now > sDate) {
+            scheduledCountExpired++; // Passou da hora e não enviou
+          } else {
+            scheduledCountScheduled++; // Agendado (futuro)
+          }
+        }
+      } catch(e) { console.warn("Erro rotas agendadas:", e); }
+
+      // Status da rota manual (Status Principal do Card)
+      let manualClass = 'idle';
+      let manualText = 'Sem rota manual';
+      let manualIcon = '⏹';
+      let manualBorder = '#95a5a6';
+
+      if (lastRouteInfo) {
+        if (lastRouteInfo.status === 'Pendente') { manualClass = 'pending'; manualText = 'Pendente'; manualBorder = '#e67e22'; manualIcon = '▶️'; }
+        if (lastRouteInfo.status === 'Em Andamento') { manualClass = 'active'; manualText = 'Rodando'; manualBorder = '#3498db'; manualIcon = '🚚'; }
+        if (lastRouteInfo.status === 'Finalizada') { manualClass = 'completed'; manualText = 'Concluída'; manualBorder = '#27ae60'; manualIcon = '✅'; }
+      }
+
+      // Status PRÓPRIO dos agendamentos
+      let schedClass = 'idle';
+      let schedText = 'Sem agendamento';
+      let schedIcon = '⏹';
+      let schedColor = '#e74c3c'; // Vermelho (Sem agendamento)
+
+      if (scheduledCountExpired > 0) {
+        schedClass = 'expired';
+        schedText = 'Atrasado';
+        schedIcon = '⚠️';
+        schedColor = '#e74c3c'; // Vermelho
+      } else if (scheduledCountScheduled > 0) {
+        const now = new Date();
+        const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        if (nextScheduledDate && nextScheduledDate >= tomorrowStart) {
+          // Agendado para amanhã / outro dia
+          schedClass = 'sent'; // Usamos a class do verde
+          schedIcon = '📅';
+          schedColor = '#27ae60'; // Verde
+          schedText = `Rota agendada`;
+        } else if (nextScheduledDate) {
+          // Agendado para hoje
+          schedClass = 'pending';
+          schedIcon = '⏳';
+          schedColor = '#f1c40f'; // Amarelo
+          schedText = `Agendamento pendente`;
+        }
+      }
+
+      // Montar header: paradas + badges menores
+      let badgesHtml = '';
+      if (scheduledCountScheduled > 0) badgesHtml += `<span class="fdc-count-badge" style="background:#f1c40f; color:#000;">⏳ ${scheduledCountScheduled}</span>`;
+      if (scheduledCountExpired > 0) badgesHtml += `<span class="fdc-count-badge" style="background:#e74c3c;">⚠️ ${scheduledCountExpired}</span>`;
+
+      const stopsCount = nextScheduledStops;
+      const routeDetailHtml = `
+        <div class="fdc-route-detail">
+          <div class="fdc-rd-item"><span class="fdc-rd-val">${stopsCount}</span><span class="fdc-rd-label">Paradas (AGENDADA)</span></div>
+          ${badgesHtml ? `<div class="fdc-rd-divider"></div><div class="fdc-rd-badges">${badgesHtml}</div>` : ''}
+        </div>
+      `;
+
       const card = document.createElement('div');
       card.className = 'fleet-driver-card';
+      card.style.borderTop = `3px solid ${manualBorder}`;
+      card.onclick = () => window.fpOpenDriverDetail(uid, displayName, email);
       card.innerHTML = `
-        <div class="fdc-preview">
-          <img src="capa.png" alt="${escapeHTML(displayName)}">
-          <span class="fdc-status ${statusClass}">${statusText}</span>
-        </div>
+        ${routeDetailHtml}
         <div class="fdc-content">
-          <h4 class="fdc-name">${escapeHTML(displayName)}</h4>
-          <p class="fdc-email">${escapeHTML(email)}</p>
-          <div class="fdc-footer">
-            <span class="fdc-route-info">📍 ${routeInfo}</span>
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
             <div class="fdc-avatar">${initial}</div>
+            <div style="flex:1; min-width:0;">
+              <h4 class="fdc-name">${escapeHTML(displayName)}</h4>
+              <p class="fdc-email">${escapeHTML(email)}</p>
+            </div>
+          </div>
+          <div class="fdc-footer" style="flex-direction: column; align-items: stretch; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; gap: 4px;">
+              <div class="fdc-status-pill ${manualClass}" style="flex:1; justify-content:center;">
+                <span>${manualIcon}</span>
+                <span>${manualText}</span>
+              </div>
+              <div class="fdc-status-pill" style="flex:1; justify-content:center; background-color:${schedColor}20; color:${schedColor}; border:1px solid ${schedColor}40;">
+                <span>${schedIcon}</span>
+                <span style="font-size:9px;">${schedText}</span>
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -1478,12 +1810,697 @@ async function renderFleetDriverCards() {
 }
 
 // ══════════════════════════════════════════════════════════
+// ROTAS FUTURAS — Detail View & Scheduling
+// ══════════════════════════════════════════════════════════
+
+window._fpCurrentDriverUid = '';
+window._fpCurrentDriverName = '';
+window._fpSchedulePoints = [];
+window._fpScheduledRoutesUnsub = null;
+
+// Abrir detalhe de um motorista
+window.fpOpenDriverDetail = function(uid, name, email) {
+  window._fpCurrentDriverUid = uid;
+  window._fpCurrentDriverName = name;
+
+  document.getElementById('fpDriversView').style.display = 'none';
+  const detail = document.getElementById('fpDriverDetail');
+  detail.style.display = 'flex';
+
+  document.getElementById('fpDetailName').textContent = '📋 ' + escapeHTML(name);
+  document.getElementById('fpDetailEmail').textContent = email;
+
+  // Carregar rotas agendadas em tempo real
+  fpLoadScheduledRoutes(uid);
+};
+
+// Voltar para lista de motoristas
+window.fpBackToDrivers = function() {
+  if (window._fpScheduledRoutesUnsub) {
+    window._fpScheduledRoutesUnsub();
+    window._fpScheduledRoutesUnsub = null;
+  }
+  document.getElementById('fpDriverDetail').style.display = 'none';
+  document.getElementById('fpDriversView').style.display = '';
+  renderFleetDriverCards(); // Atualizar contadores
+};
+
+// Carregar rotas agendadas do Firestore (tempo real)
+function fpLoadScheduledRoutes(driverUid) {
+  if (window._fpScheduledRoutesUnsub) {
+    window._fpScheduledRoutesUnsub();
+  }
+
+  const q = query(
+    collection(db, "users", driverUid, "scheduledRoutes"),
+    orderBy("scheduledDate", "asc")
+  );
+
+  window._fpScheduledRoutesUnsub = onSnapshot(q, (snapshot) => {
+    const list = document.getElementById('fpScheduledList');
+    if (!list) return;
+    list.innerHTML = '';
+
+    if (snapshot.empty) {
+      list.innerHTML = `
+        <div style="padding:30px 20px; text-align:center;">
+          <div style="font-size:36px; margin-bottom:10px; opacity:0.4;">📭</div>
+          <div style="font-size:12px; font-weight:600; color:var(--pr-text-muted);">Nenhuma rota agendada</div>
+          <div style="font-size:10px; color:var(--pr-text-muted); margin-top:4px;">Clique em "Agendar Nova Rota" para começar</div>
+        </div>
+      `;
+      return;
+    }
+
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      const schedId = docSnap.id;
+      const status = data.status || 'scheduled';
+
+      let schedDate = 'Data não definida';
+      let schedTime = '';
+      if (data.scheduledDate && data.scheduledDate.toDate) {
+        const d = data.scheduledDate.toDate();
+        schedDate = d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
+        schedTime = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      }
+
+      // Construir lista de locais
+      const stopCount = (data.points || []).length;
+      let stopPreview = '';
+      if (data.points && data.points.length > 0) {
+        const first = data.points[0];
+        const last = data.points[data.points.length - 1];
+        stopPreview = data.points.length === 1
+          ? escapeHTML(first.name || 'Local')
+          : `${escapeHTML(first.name || 'Início')} → ${escapeHTML(last.name || 'Destino')}`;
+      }
+
+      // Cor da borda por status
+      let borderColor = '#3498db'; // scheduled = azul
+      let badgeText = 'Agendada';
+      let badgeClass = 'scheduled';
+      if (status === 'sent') {
+        borderColor = '#27ae60'; // verde
+        badgeText = 'Enviada';
+        badgeClass = 'sent';
+      } else if (status === 'expired') {
+        borderColor = '#e74c3c'; // vermelho
+        badgeText = 'Expirada';
+        badgeClass = 'expired';
+      }
+
+      const card = document.createElement('div');
+      card.className = 'fp-sched-card';
+      card.style.borderLeftColor = borderColor;
+      card.onclick = () => window.fpOpenEditSchedule(schedId, driverUid);
+
+      card.innerHTML = `
+        <div class="sched-header">
+          <div class="sched-date">
+            <span>📅</span>
+            <span>${schedDate}</span>
+            <span style="color:var(--pr-blue-dark); font-weight:800;">⏰ ${schedTime || '—'}</span>
+          </div>
+          <span class="sched-badge ${badgeClass}">${badgeText}</span>
+        </div>
+        ${stopPreview ? `<div class="sched-stops">📍 ${stopPreview}</div>` : ''}
+        ${data.note ? `<div class="sched-note">💬 ${escapeHTML(data.note)}</div>` : ''}
+        <div class="sched-actions">
+          <span style="font-size:10px; color:var(--pr-text-muted); display:flex; align-items:center; gap:4px;">
+            📍 ${stopCount} parada${stopCount !== 1 ? 's' : ''}
+            ${status === 'scheduled' ? ' · Toque para editar' : ' · Toque para detalhes'}
+          </span>
+          <div style="display:flex; gap:4px;">
+            ${status === 'scheduled' ? `
+              <button onclick="event.stopPropagation(); window.fpSendScheduledNow('${schedId}')" style="background:#27ae60; color:#fff; border:none; padding:5px 10px; border-radius:6px; font-size:10px; font-weight:600; cursor:pointer; font-family:var(--font-main);">📨 Enviar</button>
+            ` : ''}
+            <button onclick="event.stopPropagation(); window.fpDeleteScheduled('${schedId}')" style="background:var(--pr-bg); color:var(--pr-text-muted); border:1px solid var(--pr-border); padding:5px 8px; border-radius:6px; font-size:10px; cursor:pointer; font-family:var(--font-main);">🗑</button>
+          </div>
+        </div>
+      `;
+      list.appendChild(card);
+    });
+  }, (error) => {
+    console.warn("Erro ao carregar rotas agendadas:", error);
+  });
+}
+
+// Abrir modal de agendamento
+window.fpOpenScheduleModal = function() {
+  window._fpSchedulePoints = [];
+  document.getElementById('schedDriverName').textContent = window._fpCurrentDriverName;
+  document.getElementById('schedNote').value = '';
+  document.getElementById('schedLocSearch').value = '';
+
+  // Definir data mínima como hoje
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const dateInput = document.getElementById('schedDate');
+  dateInput.min = todayStr;
+  dateInput.value = todayStr;
+  document.getElementById('schedTime').value = '08:00';
+
+  fpRenderScheduleSequence();
+  fpRenderScheduleLocations();
+  document.getElementById('scheduleRouteModal').classList.add('active');
+};
+
+// Fechar modal de agendamento
+window.fpCloseScheduleModal = function() {
+  document.getElementById('scheduleRouteModal').classList.remove('active');
+};
+
+// Renderizar sequência de pontos no modal de agendamento
+function fpRenderScheduleSequence() {
+  const container = document.getElementById('schedRouteSequence');
+  if (window._fpSchedulePoints.length === 0) {
+    container.innerHTML = '<div style="font-size:10px; color:var(--pr-text-muted); text-align:center; padding:8px;">Nenhum ponto adicionado. Selecione abaixo.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  window._fpSchedulePoints.forEach((loc, i) => {
+    const item = document.createElement('div');
+    item.style.cssText = 'display:flex; align-items:center; background:var(--pr-surface); border:0.5px solid var(--pr-border); padding:5px 8px; border-radius:6px; gap:8px;';
+
+    const upBtn = i > 0
+      ? `<button class="ia-btn" style="width:22px; height:22px; font-size:13px; font-weight:bold; color:var(--pr-text-muted);" onclick="window.fpMoveSchedPoint(${i}, -1)" title="Subir">↑</button>`
+      : '<div style="width:22px;"></div>';
+    const downBtn = i < window._fpSchedulePoints.length - 1
+      ? `<button class="ia-btn" style="width:22px; height:22px; font-size:13px; font-weight:bold; color:var(--pr-text-muted);" onclick="window.fpMoveSchedPoint(${i}, 1)" title="Descer">↓</button>`
+      : '<div style="width:22px;"></div>';
+
+    item.innerHTML = `
+      <div style="background:var(--pr-blue-dark); color:#fff; font-size:9px; font-weight:700; width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">${i + 1}</div>
+      <div style="flex:1; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--pr-text); font-weight:600;">${escapeHTML(loc.name || loc.originalInput)}</div>
+      <div style="display:flex; gap:2px; align-items:center;">
+        ${upBtn}
+        ${downBtn}
+        <button class="ia-btn" style="width:20px; height:20px; font-size:11px; color:#e06666;" onclick="window.fpRemoveSchedPoint(${i})" title="Remover">✕</button>
+      </div>
+    `;
+    container.appendChild(item);
+  });
+}
+
+// Renderizar locais disponíveis no modal de agendamento
+function fpRenderScheduleLocations() {
+  const container = document.getElementById('schedAvailableList');
+  const term = (document.getElementById('schedLocSearch').value || '').toLowerCase();
+  container.innerHTML = '';
+
+  const filtered = allLocations.filter(loc =>
+    (loc.name || '').toLowerCase().includes(term) ||
+    (loc.originalInput || '').toLowerCase().includes(term)
+  );
+
+  filtered.forEach(loc => {
+    // Esconder se já estiver selecionado
+    if (window._fpSchedulePoints.find(p => p.id === loc.id)) return;
+
+    const item = document.createElement('div');
+    item.className = 'loc-item';
+    item.style.cssText = 'margin-bottom:4px; padding:6px 10px;';
+    item.innerHTML = `
+      <div class="loc-dot dot-b" style="cursor:pointer;" onclick="window.fpAddSchedPoint('${loc.id}')">＋</div>
+      <div class="loc-info" style="cursor:pointer;" onclick="window.fpAddSchedPoint('${loc.id}')">
+        <div class="loc-name">${escapeHTML(loc.name) || 'Endereço'}</div>
+        <div class="loc-addr" style="font-size:9px;">Clique para adicionar</div>
+      </div>
+    `;
+    container.appendChild(item);
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:10px; font-size:11px; color:var(--pr-text-muted); text-align:center;">Nenhum local encontrado.</div>';
+  }
+}
+
+window.fpFilterScheduleLocations = function() {
+  fpRenderScheduleLocations();
+};
+
+window.fpAddSchedPoint = function(id) {
+  const loc = allLocations.find(l => l.id === id);
+  if (loc) {
+    window._fpSchedulePoints.push(loc);
+    document.getElementById('schedLocSearch').value = '';
+    fpRenderScheduleSequence();
+    fpRenderScheduleLocations();
+  }
+};
+
+window.fpRemoveSchedPoint = function(index) {
+  window._fpSchedulePoints.splice(index, 1);
+  fpRenderScheduleSequence();
+  fpRenderScheduleLocations();
+};
+
+window.fpMoveSchedPoint = function(index, direction) {
+  if (direction === -1 && index > 0) {
+    const temp = window._fpSchedulePoints[index];
+    window._fpSchedulePoints[index] = window._fpSchedulePoints[index - 1];
+    window._fpSchedulePoints[index - 1] = temp;
+  } else if (direction === 1 && index < window._fpSchedulePoints.length - 1) {
+    const temp = window._fpSchedulePoints[index];
+    window._fpSchedulePoints[index] = window._fpSchedulePoints[index + 1];
+    window._fpSchedulePoints[index + 1] = temp;
+  }
+  fpRenderScheduleSequence();
+};
+
+// Salvar rota agendada no Firestore
+window.fpSaveScheduledRoute = async function() {
+  const driverUid = window._fpCurrentDriverUid;
+  if (!driverUid) return alert("Nenhum motorista selecionado.");
+
+  const dateVal = document.getElementById('schedDate').value;
+  const timeVal = document.getElementById('schedTime').value;
+  const note = document.getElementById('schedNote').value.trim();
+
+  if (!dateVal) return alert("Selecione uma data para o envio.");
+  if (window._fpSchedulePoints.length < 1) return alert("Adicione pelo menos 1 ponto à rota.");
+
+  const btn = document.getElementById('schedSaveBtn');
+  btn.textContent = '⏳ Salvando...';
+  btn.style.pointerEvents = 'none';
+  btn.style.opacity = '0.7';
+
+  try {
+    // Montar timestamp do agendamento
+    const [year, month, day] = dateVal.split('-').map(Number);
+    const [hour, minute] = timeVal.split(':').map(Number);
+    const scheduledDate = new Date(year, month - 1, day, hour, minute);
+
+    // Montar link do Google Maps
+    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.name || loc.originalInput);
+    const lastP = window._fpSchedulePoints[window._fpSchedulePoints.length - 1];
+    let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
+    if (window._fpSchedulePoints.length > 1) {
+      const wpUrls = window._fpSchedulePoints.slice(0, -1).map(getDeepFormat);
+      mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
+    }
+
+    // Salvar na subcollection do motorista
+    await addDoc(collection(db, "users", driverUid, "scheduledRoutes"), {
+      points: window._fpSchedulePoints.map(p => ({ name: p.name, input: p.originalInput, lat: p.lat || null, lng: p.lng || null })),
+      stopsCount: window._fpSchedulePoints.length,
+      mapsUrl: mapsUrl,
+      note: note,
+      status: "scheduled",
+      scheduledDate: scheduledDate,
+      createdAt: serverTimestamp(),
+      createdBy: currentUser.uid,
+      createdByName: currentUser.displayName || currentUser.email || 'Admin'
+    });
+
+    btn.textContent = '✅ Agendada!';
+    btn.style.background = '#27ae60';
+    setTimeout(() => {
+      btn.textContent = '📅 Agendar Rota';
+      btn.style.pointerEvents = 'auto';
+      btn.style.opacity = '1';
+      btn.style.background = '#27ae60';
+      window.fpCloseScheduleModal();
+    }, 1200);
+
+  } catch(e) {
+    console.error("Erro ao agendar rota:", e);
+    alert("Erro ao agendar rota: " + e.message);
+    btn.textContent = '📅 Agendar Rota';
+    btn.style.pointerEvents = 'auto';
+    btn.style.opacity = '1';
+  }
+};
+
+// Enviar rota agendada imediatamente (mover para history)
+window.fpSendScheduledNow = async function(schedId) {
+  const driverUid = window._fpCurrentDriverUid;
+  if (!driverUid) return;
+
+  if (!confirm("Deseja enviar essa rota agora para o motorista?")) return;
+
+  try {
+    const schedRef = doc(db, "users", driverUid, "scheduledRoutes", schedId);
+    const schedSnap = await getDoc(schedRef);
+    if (!schedSnap.exists() || schedSnap.data().status !== "scheduled") return alert("Rota agendada já enviada ou não encontrada.");
+
+    const data = schedSnap.data();
+
+    // Marcar como enviada primeiro para evitar duplicatas
+    await updateDoc(schedRef, { status: "sent", sentAt: serverTimestamp() });
+
+    // Criar a rota no history do motorista (mesma lógica do generateManualRoute)
+    const routeData = {
+      points: data.points || [],
+      distance: "—",
+      time: "—",
+      stopsCount: data.stopsCount || 0,
+      polyline: "",
+      mapsUrl: data.mapsUrl || "",
+      status: "Pendente",
+      createdAt: serverTimestamp(),
+      assignedBy: currentUser.uid,
+      assignedByName: currentUser.displayName || currentUser.email || 'Admin'
+    };
+
+    if (data.note) routeData.note = data.note;
+
+    await addDoc(collection(db, "users", driverUid, "history"), routeData);
+
+    alert("✅ Rota enviada com sucesso para " + window._fpCurrentDriverName + "!");
+  } catch(e) {
+    console.error("Erro ao enviar rota:", e);
+    alert("Erro ao enviar: " + e.message);
+  }
+};
+
+window.checkAndDispatchScheduledRoutes = async function() {
+  if (!currentUser) return;
+  const now = new Date();
+
+  // Função auxiliar para disparar rotas de um UID específico
+  const dispatchForDriver = async (driverUid, assignedByName) => {
+    try {
+      const sq = query(
+        collection(db, "users", driverUid, "scheduledRoutes"),
+        where("status", "==", "scheduled"),
+        where("scheduledDate", "<=", now)
+      );
+      const sSnap = await getDocs(sq);
+      
+      for (const schedSnap of sSnap.docs) {
+        const data = schedSnap.data();
+        
+        // Evitar concorrência
+        await updateDoc(schedSnap.ref, { status: "sent", sentAt: serverTimestamp() });
+
+        const routeData = {
+          points: data.points || [],
+          distance: "—",
+          time: "—",
+          stopsCount: data.stopsCount || 0,
+          polyline: "",
+          mapsUrl: data.mapsUrl || "",
+          status: "Pendente",
+          createdAt: serverTimestamp(),
+          assignedBy: currentUser.uid,
+          assignedByName: assignedByName
+        };
+        if (data.note) routeData.note = data.note;
+
+        await addDoc(collection(db, "users", driverUid, "history"), routeData);
+        console.log("Rota Auto-Despachada para", driverUid);
+      }
+    } catch(e) {
+      console.warn("Erro no check de scheduledRoutes", e);
+    }
+  };
+
+  if (window.userRole === 'driver') {
+    await dispatchForDriver(currentUser.uid, 'Admin');
+  } else if (window.userRole === 'admin') {
+    try {
+      const q = query(collection(db, "users"), where("adminId", "==", window.companyId || currentUser.uid));
+      const driversSnap = await getDocs(q);
+      const promises = [];
+      driversSnap.forEach(docSnap => {
+         if(docSnap.data().role === 'driver') {
+           promises.push(dispatchForDriver(docSnap.id, currentUser.displayName || currentUser.email || 'Admin'));
+         }
+      });
+      await Promise.all(promises);
+    } catch(e) {
+      console.warn("Erro auto dispatch routes", e);
+    }
+  }
+};
+
+// Excluir rota agendada
+window.fpDeleteScheduled = async function(schedId) {
+  const driverUid = window._fpCurrentDriverUid;
+  if (!driverUid) return;
+
+  if (!confirm("Deseja excluir esta rota agendada?")) return;
+
+  try {
+    await deleteDoc(doc(db, "users", driverUid, "scheduledRoutes", schedId));
+  } catch(e) {
+    alert("Erro ao excluir: " + e.message);
+  }
+};
+
+// ══════════════════════════════════════════════════════════
+// EDIT / VIEW SCHEDULED ROUTE MODAL
+// ══════════════════════════════════════════════════════════
+
+window._editSchedId = '';
+window._editSchedDriverUid = '';
+window._editSchedPoints = [];
+window._editSchedStatus = 'scheduled';
+
+window.fpOpenEditSchedule = async function(schedId, driverUid) {
+  window._editSchedId = schedId;
+  window._editSchedDriverUid = driverUid || window._fpCurrentDriverUid;
+  
+  try {
+    const schedRef = doc(db, "users", window._editSchedDriverUid, "scheduledRoutes", schedId);
+    const schedSnap = await getDoc(schedRef);
+    if (!schedSnap.exists()) return alert("Agendamento não encontrado.");
+
+    const data = schedSnap.data();
+    window._editSchedPoints = (data.points || []).map((p, i) => ({
+      id: `sched_${i}_${Date.now()}`,
+      name: p.name || p.input || 'Local',
+      originalInput: p.input || p.name || '',
+      lat: p.lat || null,
+      lng: p.lng || null
+    }));
+    window._editSchedStatus = data.status || 'scheduled';
+
+    // Preencher informações do modal
+    let schedDate = '—';
+    let schedTime = '—';
+    if (data.scheduledDate && data.scheduledDate.toDate) {
+      const d = data.scheduledDate.toDate();
+      schedDate = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+      schedTime = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    document.getElementById('editSchedTitle').textContent = window._editSchedStatus === 'scheduled' ? '✏️ Editar Agendamento' : '📋 Detalhes do Agendamento';
+    document.getElementById('editSchedDate').textContent = `📅 ${schedDate} · ⏰ ${schedTime}`;
+    document.getElementById('editSchedNote').textContent = data.note ? `💬 ${data.note}` : '';
+    
+    // Mostrar/ocultar botões de edição
+    const saveBtn = document.getElementById('editSchedSaveBtn');
+    const addSection = document.getElementById('editSchedAddSection');
+    if (window._editSchedStatus === 'scheduled') {
+      saveBtn.style.display = '';
+      addSection.style.display = '';
+    } else {
+      saveBtn.style.display = 'none';
+      addSection.style.display = 'none';
+    }
+
+    fpRenderEditSchedStops();
+    document.getElementById('editScheduledRouteModal').classList.add('active');
+  } catch(e) {
+    console.error("Erro ao abrir edição:", e);
+    alert("Erro ao abrir agendamento: " + e.message);
+  }
+};
+
+window.fpCloseEditSchedule = function() {
+  document.getElementById('editScheduledRouteModal').classList.remove('active');
+};
+
+function fpRenderEditSchedStops() {
+  const container = document.getElementById('editSchedStopsList');
+  container.innerHTML = '';
+  const isEditable = window._editSchedStatus === 'scheduled';
+
+  if (window._editSchedPoints.length === 0) {
+    container.innerHTML = '<div style="font-size:11px; color:var(--pr-text-muted); text-align:center; padding:16px;">Nenhuma parada adicionada.</div>';
+    return;
+  }
+
+  window._editSchedPoints.forEach((p, i) => {
+    const item = document.createElement('div');
+    item.style.cssText = 'display:flex; align-items:center; background:var(--pr-surface); border:1px solid var(--pr-border); padding:8px 10px; border-radius:8px; gap:8px; transition: all 0.15s;';
+
+    const orderBtns = isEditable ? `
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        ${i > 0 ? `<button class="ia-btn" style="width:20px; height:16px; font-size:11px; color:var(--pr-text-muted);" onclick="window.fpEditSchedMove(${i}, -1)">↑</button>` : '<div style="height:16px;"></div>'}
+        ${i < window._editSchedPoints.length - 1 ? `<button class="ia-btn" style="width:20px; height:16px; font-size:11px; color:var(--pr-text-muted);" onclick="window.fpEditSchedMove(${i}, 1)">↓</button>` : '<div style="height:16px;"></div>'}
+      </div>
+    ` : '';
+
+    const removeBtn = isEditable ? `<button class="ia-btn" style="width:22px; height:22px; font-size:12px; color:#e74c3c;" onclick="window.fpEditSchedRemove(${i})">✕</button>` : '';
+
+    item.innerHTML = `
+      <div style="background:var(--pr-blue-dark); color:#fff; font-size:10px; font-weight:700; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">${i + 1}</div>
+      <div style="flex:1; min-width:0;">
+        <div style="font-size:12px; font-weight:600; color:var(--pr-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(p.name)}</div>
+        ${p.lat && p.lng ? `<div style="font-size:9px; color:var(--pr-text-muted);">${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</div>` : ''}
+      </div>
+      ${orderBtns}
+      ${removeBtn}
+    `;
+    container.appendChild(item);
+  });
+}
+
+window.fpEditSchedMove = function(index, direction) {
+  const arr = window._editSchedPoints;
+  if (direction === -1 && index > 0) {
+    [arr[index], arr[index - 1]] = [arr[index - 1], arr[index]];
+  } else if (direction === 1 && index < arr.length - 1) {
+    [arr[index], arr[index + 1]] = [arr[index + 1], arr[index]];
+  }
+  fpRenderEditSchedStops();
+};
+
+window.fpEditSchedRemove = function(index) {
+  window._editSchedPoints.splice(index, 1);
+  fpRenderEditSchedStops();
+  fpRenderEditSchedAvailable();
+};
+
+function fpRenderEditSchedAvailable() {
+  const container = document.getElementById('editSchedAvailList');
+  const term = (document.getElementById('editSchedSearch').value || '').toLowerCase();
+  container.innerHTML = '';
+
+  const filtered = allLocations.filter(loc =>
+    (loc.name || '').toLowerCase().includes(term) ||
+    (loc.originalInput || '').toLowerCase().includes(term)
+  );
+
+  const selectedIds = new Set(window._editSchedPoints.map(p => p.name));
+  
+  filtered.forEach(loc => {
+    if (selectedIds.has(loc.name)) return;
+
+    const item = document.createElement('div');
+    item.className = 'loc-item';
+    item.style.cssText = 'margin-bottom:3px; padding:5px 8px; cursor:pointer;';
+    item.onclick = () => {
+      window._editSchedPoints.push({
+        id: loc.id,
+        name: loc.name,
+        originalInput: loc.originalInput,
+        lat: loc.lat || null,
+        lng: loc.lng || null
+      });
+      document.getElementById('editSchedSearch').value = '';
+      fpRenderEditSchedStops();
+      fpRenderEditSchedAvailable();
+    };
+    item.innerHTML = `
+      <div class="loc-dot dot-b">＋</div>
+      <div class="loc-info">
+        <div class="loc-name">${escapeHTML(loc.name) || 'Endereço'}</div>
+        <div class="loc-addr" style="font-size:9px;">Adicionar parada</div>
+      </div>
+    `;
+    container.appendChild(item);
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:8px; font-size:10px; color:var(--pr-text-muted); text-align:center;">Nenhum local encontrado.</div>';
+  }
+}
+
+window.fpFilterEditSchedLocations = function() {
+  fpRenderEditSchedAvailable();
+};
+
+window.fpSaveEditSchedule = async function() {
+  if (window._editSchedPoints.length < 1) return alert("Adicione pelo menos 1 parada.");
+
+  const btn = document.getElementById('editSchedSaveBtn');
+  btn.textContent = '⏳ Salvando...';
+  btn.style.pointerEvents = 'none';
+
+  try {
+    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.name || loc.originalInput);
+    const lastP = window._editSchedPoints[window._editSchedPoints.length - 1];
+    let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
+    if (window._editSchedPoints.length > 1) {
+      const wpUrls = window._editSchedPoints.slice(0, -1).map(getDeepFormat);
+      mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
+    }
+
+    const schedRef = doc(db, "users", window._editSchedDriverUid, "scheduledRoutes", window._editSchedId);
+    await updateDoc(schedRef, {
+      points: window._editSchedPoints.map(p => ({ name: p.name, input: p.originalInput, lat: p.lat || null, lng: p.lng || null })),
+      stopsCount: window._editSchedPoints.length,
+      mapsUrl: mapsUrl
+    });
+
+    btn.textContent = '✅ Salvo!';
+    btn.style.background = '#27ae60';
+    setTimeout(() => {
+      btn.textContent = '💾 Salvar Alterações';
+      btn.style.pointerEvents = 'auto';
+      btn.style.background = 'var(--pr-blue-dark)';
+      window.fpCloseEditSchedule();
+    }, 1000);
+  } catch(e) {
+    console.error("Erro ao salvar edição:", e);
+    alert("Erro ao salvar: " + e.message);
+    btn.textContent = '💾 Salvar Alterações';
+    btn.style.pointerEvents = 'auto';
+  }
+};
+
+// ══════════════════════════════════════════════════════════
 // FLEET MANAGEMENT — Convidar e listar motoristas
 // ══════════════════════════════════════════════════════════
+
+async function cleanupExpiredInvitesAndKeys() {
+  if (window.userRole !== 'admin') return;
+  
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  try {
+    const invitesQ = query(
+      collection(db, "invites"),
+      where("adminId", "==", window.companyId || currentUser.uid),
+      where("usado", "==", false)
+    );
+    const snap = await getDocs(invitesQ);
+    snap.forEach(d => {
+      const data = d.data();
+      const createdAt = data.criadoEm?.toDate ? data.criadoEm.toDate().getTime() : 0;
+      if (createdAt > 0 && (now - createdAt) > dayMs) {
+        deleteDoc(d.ref).catch(e => console.log('Erro ao apagar invite', e));
+      }
+    });
+  } catch (e) { console.log('cleanup invites erro', e); }
+
+  try {
+    const keysQ = query(
+      collection(db, "admin_keys"),
+      where("createdBy", "==", window.companyId || currentUser.uid),
+      where("usado", "==", false)
+    );
+    const snap = await getDocs(keysQ);
+    snap.forEach(d => {
+      const data = d.data();
+      const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().getTime() : 0;
+      if (createdAt > 0 && (now - createdAt) > dayMs) {
+        deleteDoc(d.ref).catch(e => console.log('Erro ao apagar admin key', e));
+      }
+    });
+  } catch (e) { console.log('cleanup admin keys erro', e); }
+}
 
 window.openFleetModal = function() {
   document.getElementById('fleetModal').classList.add('active');
   document.getElementById('inviteLinkResult').style.display = 'none';
+  cleanupExpiredInvitesAndKeys();
   loadFleetDrivers();
 };
 
@@ -1661,75 +2678,970 @@ window.openAdminHub = function() {
 
 window.closeAdminHub = function() {
   document.getElementById('adminHubModal').classList.remove('active');
+  if (window._adminHubUnsubscribe) {
+    window._adminHubUnsubscribe();
+    window._adminHubUnsubscribe = null;
+  }
 };
 
 async function loadAdminHubData() {
   const content = document.getElementById('adminHubContent');
-  content.innerHTML = '<p style="text-align:center; font-size:12px; color:var(--pr-text-muted);">Buscando motoristas, um momento...</p>';
+  content.innerHTML = `
+    <div style="padding: 20px; text-align: center;">
+      <div class="status-pulse blue" style="margin-right: 0; width: 12px; height: 12px;"></div>
+      <p style="font-size:12px; color:var(--pr-text-muted); margin-top:10px;">Sincronizando Frota ao Vivo...</p>
+      <div style="font-size:9px; color:var(--pr-blue-mid); font-weight:700; margin-top:5px; text-transform:uppercase; letter-spacing:1px; animation: pulse 2s infinite;">● Conexão Ativa</div>
+    </div>`;
+  
+  if (window._adminHubUnsubscribe) {
+    window._adminHubUnsubscribe();
+  }
+
   try {
     const usersQ = query(collection(db, "users"), where("adminId", "==", window.companyId));
-    const snapshot = await getDocs(usersQ);
-    content.innerHTML = '';
     
-    if (snapshot.empty) {
-      content.innerHTML = '<p style="text-align:center; font-size:12px;">Nenhum motorista vinculado. Use "Minha Frota" para convidar.</p>';
-      return;
-    }
-
-    for (const userDoc of snapshot.docs) {
-      const u = userDoc.data();
-      if (u.role === "driver") {
-        // Obter a última rota
-        const hQ = query(collection(db, "users", userDoc.id, "history"), orderBy("createdAt", "desc"), limit(1));
-        const hSnap = await getDocs(hQ);
-        
-        const card = document.createElement('div');
-        card.style.background = "var(--pr-surface)";
-        card.style.padding = "12px";
-        card.style.borderRadius = "8px";
-        card.style.borderLeft = "4px solid var(--pr-blue-dark)";
-        card.style.border = "1px solid var(--pr-border)";
-        card.style.boxShadow = "0 1px 3px rgba(0,0,0,0.05)";
-        
-        let driverName = u.nome || u.email || 'Motorista';
-        const displayEdit = `🚗 ${escapeHTML(driverName)} <span style="font-size:10px; cursor:pointer;" title="Editar Nome do Motorista" onclick="renameDriver('${userDoc.id}', '${(u.nome || u.email || '').replace(/'/g, "\\'")}')">✏️</span>`;
-        
-        if (hSnap.empty) {
-          card.innerHTML = `<div class="text-dark-auto" style="font-weight:700; font-size:13px;">${displayEdit}</div>
-                            <div style="font-size:11px; color:var(--pr-text-muted); margin-top:4px;">Nenhuma rota no histórico</div>`;
-        } else {
-          const r = hSnap.docs[0].data();
-          const routeStatus = r.status || "Pendente";
-          let stColor = routeStatus === "Pendente" ? "orange" : (routeStatus === "Concluída" ? "#00e676" : "#2196f3");
-          
-          let stopsCount = r.stopsCount || "?";
-          let startedTimeHTML = '';
-          if (r.startedAt && r.startedAt.toDate) {
-            const dObj = r.startedAt.toDate();
-            startedTimeHTML = `<br><span style="color:#2196f3; font-weight:600; background:rgba(33, 150, 243, 0.1); padding:2px 6px; border-radius:4px; display:inline-block; margin-top:4px;">⏱ Saída: ${dObj.toLocaleDateString('pt-BR')} às ${dObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>`;
-          }
-          
-          let hrefUrl = r.mapsUrl || "#";
-          
-          card.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <div class="text-dark-auto" style="font-weight:700; font-size:13px;">${displayEdit}</div>
-              <span style="font-size:10px; background:${stColor}; color:#fff; padding:2px 6px; border-radius:10px; font-weight:bold;">${escapeHTML(routeStatus)}</span>
-            </div>
-            <div style="font-size:11px; color:var(--pr-text-muted); margin-top:4px;">${stopsCount} paradas registradas na rota atual.${startedTimeHTML}</div>
-            <a href="${sanitizeUrl(hrefUrl)}" target="_blank" style="display:inline-block; margin-top:8px; font-size:10px; background:var(--pr-bg); padding:4px 8px; border-radius:4px; text-decoration:none; color:var(--pr-blue-dark); font-weight:bold;">🗺 Espionar Rota</a>
-          `;
-        }
-        content.appendChild(card);
+    // Fail-safe para sincronização: se demorar demais, avisar o usuário
+    const syncTimeout = setTimeout(() => {
+      if (content.querySelector('.status-pulse')) {
+        content.innerHTML = `
+          <div style="padding: 30px; text-align: center; color: var(--pr-text-muted);">
+            <div style="font-size: 24px; margin-bottom: 10px;">📡</div>
+            <p style="font-size: 12px;">A conexão está demorando mais que o esperado.</p>
+            <button onclick="window.loadAdminHubData()" class="mbtn mbtn-save" style="margin-top:10px; padding: 8px 16px; font-size:11px;">Tentar Reiniciar Conexão</button>
+          </div>`;
       }
-    }
+    }, 10000);
+
+    window._adminHubUnsubscribe = onSnapshot(usersQ, async (snapshot) => {
+      clearTimeout(syncTimeout);
+      content.innerHTML = '';
+      
+      if (snapshot.empty) {
+        content.innerHTML = `<div style="padding: 40px; text-align: center; opacity: 0.5;">
+          <div style="font-size: 40px; margin-bottom: 10px;">👥</div>
+          <div class="text-dark-auto" style="font-size: 13px; font-weight: 700;">Nenhum motorista vinculado</div>
+          <div style="font-size: 11px; color: var(--pr-text-muted); margin-top: 5px;">Use "Minha Frota" para convidar sua equipe.</div>
+        </div>`;
+        return;
+      }
+
+      // Grid container for premium look
+      const grid = document.createElement('div');
+      grid.style.display = "grid";
+      grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(280px, 1fr))";
+      grid.style.gap = "15px";
+      content.appendChild(grid);
+
+      for (const userDoc of snapshot.docs) {
+        const u = userDoc.data();
+        if (u.role === "driver") {
+          // Obter a última rota em tempo real
+          const hQ = query(collection(db, "users", userDoc.id, "history"), orderBy("createdAt", "desc"), limit(1));
+          const hSnap = await getDocs(hQ);
+          
+          const card = document.createElement('div');
+          card.className = 'hub-card';
+          
+          let displayName = u.apelido || u.nome || u.email || 'Motorista';
+          const initial = displayName.charAt(0).toUpperCase();
+
+          if (hSnap.empty) {
+            card.innerHTML = `
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+                <div style="display: flex; gap: 12px; align-items: center;">
+                  <div class="fdc-avatar">${initial}</div>
+                  <div>
+                    <div class="fdc-name" style="display:flex; align-items:center; gap:5px;">
+                      ${escapeHTML(displayName)}
+                      <span style="font-size:10px; cursor:pointer; opacity: 0.5;" onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')">✏️</span>
+                    </div>
+                    <div class="fdc-email">${escapeHTML(u.email || "")}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="hub-route-${userDoc.id}" style="font-size:11px; color:var(--pr-text-muted); background:var(--pr-bg); padding:8px 10px; border-radius:8px; border:1px solid var(--pr-border);">
+                Pendente: Sem histórico de rotas
+              </div>
+
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <button onclick="window.closeAdminHub(); window.openLiveSpy('${userDoc.id}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px; background:var(--pr-blue-dark);">
+                  <span>🛰️</span> Espionar
+                </button>
+                <button onclick="window.openDriverStats('${userDoc.id}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px;">
+                  <span>📈</span> Desempenho
+                </button>
+              </div>
+            `;
+          } else {
+            const r = hSnap.docs[0].data();
+            const routeStatus = r.status || "Pendente";
+            let stClass = "blue";
+            let stBadgeColor = "var(--pr-blue-dark)";
+            
+            if (routeStatus === "Finalizada" || routeStatus === "Concluída") {
+              stClass = "green";
+              stBadgeColor = "#27ae60";
+            } else if (routeStatus === "Pendente") {
+              stClass = "blue";
+              stBadgeColor = "#f39c12";
+            } else if (routeStatus === "Cancelada") {
+              stBadgeColor = "#e74c3c";
+            }
+
+            let startedTimeHTML = '';
+            if (r.startedAt && r.startedAt.toDate) {
+              const dObj = r.startedAt.toDate();
+              startedTimeHTML = `<div style="font-size:10px; color:var(--pr-blue-mid); margin-top:2px;">🏎️ Iniciou às ${dObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</div>`;
+            }
+            
+            const locRef = rtdbRef(rtdb, `locations/${window.companyId}/${userDoc.id}`);
+            // Usaremos um listener local para esse card para ser 100% real-time
+            // Mas para simplificar neste loop, vamos apenas deixar um placeholder que será preenchido
+            
+            card.innerHTML = `
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div class="fdc-avatar">${initial}</div>
+                  <div style="flex: 1; min-width: 0;">
+                    <div class="text-dark-auto" style="font-weight:800; font-size:14px; display: flex; align-items: center; gap: 6px;">
+                      ${escapeHTML(displayName)}
+                      <span style="font-size:10px; cursor:pointer; opacity: 0.5;" onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')">✏️</span>
+                    </div>
+                    <div style="font-size:11px; color:var(--pr-text-muted); display: flex; align-items: center;">
+                      <span class="status-pulse ${stClass}"></span>
+                      ${escapeHTML(routeStatus)}
+                    </div>
+                  </div>
+                </div>
+                <span class="hub-status-badge" style="background: ${stBadgeColor}">${escapeHTML(routeStatus)}</span>
+              </div>
+              
+              <div style="background: var(--pr-bg); border-radius: 8px; padding: 10px; margin-top: 4px; border: 1px dashed var(--pr-border);">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div style="font-size:11px; font-weight: 700; color: var(--pr-text);">📍 ${r.stopsCount || 0} Paradas</div>
+                  <div id="hub-nearest-${userDoc.id}" style="font-size:9px; font-weight:700; color:${stBadgeColor};"></div>
+                </div>
+                ${startedTimeHTML}
+              </div>
+
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <button onclick="window.closeAdminHub(); window.openLiveSpy('${userDoc.id}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px; background:var(--pr-blue-dark);">
+                  <span>🛰️</span> Espionar
+                </button>
+                <button onclick="window.openDriverStats('${userDoc.id}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px;">
+                  <span>📈</span> Desempenho
+                </button>
+              </div>
+            `;
+
+            // Vincular listener de localização para o "Próximo"
+            if (routeStatus === "Em Rota") {
+              onValue(locRef, (lSnap) => {
+                const lData = lSnap.val();
+                const targetEl = document.getElementById(`hub-nearest-${userDoc.id}`);
+                if (targetEl && lData && lData.nearestStop) {
+                  targetEl.textContent = `Perto de: ${lData.nearestStop.name}`;
+                  targetEl.style.animation = "pulse 2s infinite";
+                }
+              }, { onlyOnce: true }); // Apenas uma vez para não criar milhares de listeners se o usuário abrir/fechar muito
+            }
+          }
+          grid.appendChild(card);
+        }
+      }
+    });
 
   } catch(e) {
-    console.warn("Erro ao carregar hub", e);
-    content.innerHTML = '<p style="text-align:center; color:red; font-size:12px;">Erro ao carregar dados.</p>';
+    console.warn("Erro ao configurar listener do hub", e);
+    content.innerHTML = '<p style="text-align:center; color:red; font-size:12px;">Erro ao carregar dados em tempo real.</p>';
   }
 }
 
 // Inicia o loop de atualização (a cada 1 segundo)
 setInterval(updateCardDate, 1000);
 updateCardDate();
+
+// ═══════════════════════════════════════════════════
+// QR CODE GENERATOR — Localização via Maps/WhatsApp
+// ═══════════════════════════════════════════════════
+(function() {
+  let qrSrc = 'wa';
+  let qrCurrentURL = '';
+
+  const qrCfg = {
+    wa: { label: 'Link do WhatsApp', hint: 'Cole o link de localização recebido no WhatsApp', ph: 'https://maps.google.com/?q=-15.79,-47.88' },
+    gm: { label: 'Link do Google Maps', hint: 'Clique em Compartilhar no Maps e cole o link aqui', ph: 'https://maps.app.goo.gl/...' }
+  };
+
+  function parseCoords(u) {
+    let m = u.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (m) return [parseFloat(m[1]), parseFloat(m[2])];
+    m = u.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (m) return [parseFloat(m[1]), parseFloat(m[2])];
+    return null;
+  }
+
+  function validateUrl(u) {
+    return u.includes('maps.google.com') || u.includes('maps.app.goo.gl') || u.includes('goo.gl/maps') || u.includes('google.com/maps');
+  }
+
+  window.openQrModal = function() {
+    document.getElementById('qrCodeModal').classList.add('active');
+    // Reset state
+    document.getElementById('qr-link-input').value = '';
+    document.getElementById('qr-detected').style.display = 'none';
+    document.getElementById('qr-error-msg').style.display = 'none';
+    document.getElementById('qr-result-section').style.display = 'none';
+    document.getElementById('qr-output').innerHTML = '';
+    qrCurrentURL = '';
+    qrSrc = 'wa';
+    document.getElementById('qr-btn-wa').className = 'qr-src-btn qr-wa-active';
+    document.getElementById('qr-btn-gm').className = 'qr-src-btn';
+    document.getElementById('qr-field-label').textContent = qrCfg.wa.label;
+    document.getElementById('qr-field-hint').textContent = qrCfg.wa.hint;
+    document.getElementById('qr-link-input').placeholder = qrCfg.wa.ph;
+  };
+
+  window.closeQrModal = function() {
+    document.getElementById('qrCodeModal').classList.remove('active');
+  };
+
+  window.qrSwitchSrc = function(s) {
+    qrSrc = s;
+    document.getElementById('qr-btn-wa').className = 'qr-src-btn' + (s === 'wa' ? ' qr-wa-active' : '');
+    document.getElementById('qr-btn-gm').className = 'qr-src-btn' + (s === 'gm' ? ' qr-gm-active' : '');
+    document.getElementById('qr-field-label').textContent = qrCfg[s].label;
+    document.getElementById('qr-field-hint').textContent = qrCfg[s].hint;
+    document.getElementById('qr-link-input').placeholder = qrCfg[s].ph;
+    document.getElementById('qr-link-input').value = '';
+    document.getElementById('qr-detected').style.display = 'none';
+    document.getElementById('qr-error-msg').style.display = 'none';
+    document.getElementById('qr-result-section').style.display = 'none';
+    document.getElementById('qr-output').innerHTML = '';
+    qrCurrentURL = '';
+  };
+
+  window.qrOnInput = function() {
+    const v = document.getElementById('qr-link-input').value.trim();
+    const c = parseCoords(v);
+    const b = document.getElementById('qr-detected');
+    if (c) {
+      document.getElementById('qr-detected-txt').textContent = `Lat ${c[0].toFixed(5)}  Lng ${c[1].toFixed(5)}`;
+      b.style.display = 'flex';
+    } else {
+      b.style.display = 'none';
+    }
+  };
+
+  window.qrGenerate = function() {
+    const errEl = document.getElementById('qr-error-msg');
+    errEl.style.display = 'none';
+
+    const v = document.getElementById('qr-link-input').value.trim();
+    if (!v) {
+      errEl.textContent = qrSrc === 'wa' ? 'Cole o link do WhatsApp.' : 'Cole o link do Google Maps.';
+      errEl.style.display = 'block';
+      return;
+    }
+    if (!v.startsWith('http')) {
+      errEl.textContent = 'O link deve começar com https://';
+      errEl.style.display = 'block';
+      return;
+    }
+    if (!validateUrl(v)) {
+      errEl.textContent = qrSrc === 'wa' ? 'Link não reconhecido. Use o link de localização do WhatsApp.' : 'Link não reconhecido. Use o link de compartilhamento do Google Maps.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    const c = parseCoords(v);
+    const url = c ? `https://www.google.com/maps?q=${c[0]},${c[1]}` : v;
+    qrCurrentURL = url;
+
+    const el = document.getElementById('qr-output');
+    el.innerHTML = '';
+    new QRCode(el, {
+      text: url,
+      width: 152,
+      height: 152,
+      colorDark: '#6c5ce7',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+
+    document.getElementById('qr-result-url').textContent = url.length > 52 ? url.slice(0, 49) + '...' : url;
+    document.getElementById('qr-result-section').style.display = 'flex';
+  };
+
+  window.qrCopyLink = function() {
+    if (!qrCurrentURL) return;
+    navigator.clipboard.writeText(qrCurrentURL).then(() => {
+      const b = document.getElementById('qr-copy-btn');
+      const original = b.innerHTML;
+      b.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#27ae60" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg> Copiado!';
+      b.style.color = '#27ae60';
+      b.style.borderColor = '#27ae60';
+      setTimeout(() => {
+        b.innerHTML = original;
+        b.style.color = '';
+        b.style.borderColor = '';
+      }, 1800);
+    });
+  };
+
+  window.qrDownload = function() {
+    const c = document.querySelector('#qr-output canvas');
+    if (!c) return;
+    const a = document.createElement('a');
+    a.download = 'qrcode-localizacao.png';
+    a.href = c.toDataURL('image/png');
+    a.click();
+  };
+})();
+
+// ═══════════════════════════════════════════════════
+// QR CODE SCANNER — Leitor via câmera (Motorista)
+// ═══════════════════════════════════════════════════
+(function() {
+  let scanStream = null;
+  let scanAnimId = null;
+  let scanDetected = false;
+  let scanResultURL = '';
+
+  window.openQrScanModal = function() {
+    document.getElementById('qrScanModal').classList.add('active');
+    qrScanResetUI();
+  };
+
+  window.closeQrScanModal = function() {
+    document.getElementById('qrScanModal').classList.remove('active');
+    qrScanStopCamera();
+  };
+
+  function qrScanStopCamera() {
+    if (scanAnimId) { cancelAnimationFrame(scanAnimId); scanAnimId = null; }
+    if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+    const v = document.getElementById('qr-scan-video');
+    if (v) { v.srcObject = null; v.style.display = 'none'; }
+    const ov = document.getElementById('qr-scan-overlay');
+    if (ov) ov.style.display = 'none';
+    document.getElementById('qr-scan-idle').style.display = 'flex';
+  }
+
+  function qrScanResetUI() {
+    scanDetected = false;
+    scanResultURL = '';
+    document.getElementById('qr-scan-result').style.display = 'none';
+    document.getElementById('qr-scan-error').style.display = 'none';
+    document.getElementById('qr-scan-url-txt').textContent = '';
+    document.getElementById('qr-scan-start-btn').style.display = 'flex';
+    document.getElementById('qr-scan-hint').textContent = 'Aponte para o QR Code de localização';
+    qrScanStopCamera();
+  }
+
+  window.qrScanReset = function() {
+    qrScanResetUI();
+  };
+
+  window.qrScanStart = async function() {
+    const errEl = document.getElementById('qr-scan-error');
+    errEl.style.display = 'none';
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      errEl.textContent = 'Câmera não suportada neste dispositivo/navegador.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      scanStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+
+      const video = document.getElementById('qr-scan-video');
+      video.srcObject = scanStream;
+      video.style.display = 'block';
+      document.getElementById('qr-scan-idle').style.display = 'none';
+      document.getElementById('qr-scan-overlay').style.display = 'block';
+      document.getElementById('qr-scan-start-btn').style.display = 'none';
+      document.getElementById('qr-scan-hint').textContent = 'Aponte para o QR Code...';
+
+      video.onloadedmetadata = () => {
+        video.play();
+        qrScanLoop();
+      };
+    } catch (e) {
+      let msg = 'Erro ao acessar a câmera.';
+      if (e.name === 'NotAllowedError') msg = 'Permissão de câmera negada. Autorize nas configurações do navegador.';
+      else if (e.name === 'NotFoundError') msg = 'Nenhuma câmera encontrada no dispositivo.';
+      errEl.textContent = msg;
+      errEl.style.display = 'block';
+    }
+  };
+
+  function qrScanLoop() {
+    if (scanDetected) return;
+
+    const video = document.getElementById('qr-scan-video');
+    const canvas = document.getElementById('qr-scan-canvas');
+    if (!video || !canvas || video.readyState < 2) {
+      scanAnimId = requestAnimationFrame(qrScanLoop);
+      return;
+    }
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = typeof jsQR !== 'undefined'
+      ? jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' })
+      : null;
+
+    if (code && code.data) {
+      qrScanHandleResult(code.data);
+      return;
+    }
+
+    scanAnimId = requestAnimationFrame(qrScanLoop);
+  }
+
+  function qrScanHandleResult(data) {
+    scanDetected = true;
+    qrScanStopCamera();
+
+    // Validate it's a maps link or any URL
+    const isURL = data.startsWith('http://') || data.startsWith('https://');
+    const isMaps = data.includes('maps.google.com') || data.includes('maps.app.goo.gl') || data.includes('google.com/maps') || data.includes('goo.gl/maps');
+
+    if (!isURL) {
+      const errEl = document.getElementById('qr-scan-error');
+      errEl.textContent = 'QR Code detectado, mas não contém um link válido: ' + data.slice(0, 60);
+      errEl.style.display = 'block';
+      document.getElementById('qr-scan-start-btn').style.display = 'flex';
+      scanDetected = false;
+      return;
+    }
+
+    scanResultURL = data;
+    document.getElementById('qr-scan-url-txt').textContent = data.length > 60 ? data.slice(0, 57) + '...' : data;
+    document.getElementById('qr-scan-result').style.display = 'flex';
+    document.getElementById('qr-scan-hint').textContent = isMaps ? 'Localização encontrada!' : 'Link detectado!';
+  }
+
+  window.qrScanNavigate = function() {
+    if (!scanResultURL) return;
+    window.open(scanResultURL, '_blank');
+  };
+})();
+
+// ═══════════════════════════════════════════════════════════════
+// LIVE SPY — Rastreamento GPS em tempo real via Firebase RTDB
+// ═══════════════════════════════════════════════════════════════
+
+// Helper: Calcula a distância entre dois pontos (Haversine)
+function getDistanceInKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Raio da Terra em km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+// Helper: Busca a missão ativa do motorista (status "Em Rota")
+async function getDriverActiveMission(uid) {
+  try {
+    const q = query(
+      collection(db, "users", uid, "history"),
+      where("status", "==", "Em Rota"),
+      orderBy("createdAt", "desc"),
+      limit(1)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    }
+    return null;
+  } catch(e) {
+    console.warn("Erro ao buscar missão ativa:", e);
+    return null;
+  }
+}
+
+// ── DRIVER SIDE: envia posição silenciosamente ao Firebase RTDB ──
+let _gpsWatchId = null;
+let _activeMissionCache = null;
+let _lastMissionUpdate = 0;
+
+function startDriverGPS() {
+  if (!currentUser || window.userRole !== 'driver') return;
+  if (!navigator.geolocation) return;
+
+  const adminKey = window.adminId || 'no-admin';
+  const posRef = rtdbRef(rtdb, `locations/${adminKey}/${currentUser.uid}`);
+
+  // Obtém nome do motorista do Firestore para exibir no mapa do admin
+  getDoc(doc(db, 'users', currentUser.uid)).then(snap => {
+    const udata = snap.exists() ? snap.data() : {};
+    const driverName = udata.apelido || udata.nome || currentUser.email || 'Motorista';
+
+    _gpsWatchId = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const now = Date.now();
+        const currentLat = pos.coords.latitude;
+        const currentLng = pos.coords.longitude;
+
+        // Tenta atualizar o cache da missão a cada 30 segundos (sem bloquear o RTDB)
+        if (!_activeMissionCache || (now - _lastMissionUpdate > 30000)) {
+          _lastMissionUpdate = now;
+          getDriverActiveMission(currentUser.uid).then(m => {
+             _activeMissionCache = m;
+          }).catch(e => console.warn("Erro ao atualizar missão em background:", e));
+        }
+
+        let nearestStop = null;
+        if (_activeMissionCache && _activeMissionCache.points && _activeMissionCache.points.length > 0) {
+          let minDistance = Infinity;
+          
+          _activeMissionCache.points.forEach((point, idx) => {
+            // Se o ponto tiver coordenadas, calculamos. Caso contrário, ignoramos
+            if (point.lat && point.lng) {
+              const dist = getDistanceInKm(currentLat, currentLng, point.lat, point.lng);
+              if (dist < minDistance) {
+                minDistance = dist;
+                nearestStop = {
+                  name: point.name || `Parada ${idx + 1}`,
+                  distance: dist.toFixed(2),
+                  index: idx
+                };
+              }
+            }
+          });
+        }
+
+        try {
+          await rtdbSet(posRef, {
+            lat: currentLat,
+            lng: currentLng,
+            speed: pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : 0, // km/h
+            heading: pos.coords.heading || 0,
+            accuracy: Math.round(pos.coords.accuracy || 0),
+            name: driverName,
+            uid: currentUser.uid,
+            ts: now,
+            nearestStop: nearestStop,
+            missionId: _activeMissionCache ? _activeMissionCache.id : null
+          });
+        } catch(e) { console.warn('GPS RTDB error:', e); }
+      },
+      (err) => console.warn('GPS watchPosition error:', err),
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+    );
+  }).catch(e => console.warn('Failed to get driver name for GPS:', e));
+}
+
+function stopDriverGPS() {
+  if (_gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(_gpsWatchId);
+    _gpsWatchId = null;
+  }
+  // Remove position from RTDB when driver logs out
+  if (currentUser && window.adminId) {
+    const posRef = rtdbRef(rtdb, `locations/${window.adminId}/${currentUser.uid}`);
+    rtdbSet(posRef, null).catch(() => {});
+  }
+}
+
+// Hook into auth state — start GPS for drivers, stop on logout
+const _origHandleLogout = window.handleLogout;
+window.handleLogout = async function() {
+  stopDriverGPS();
+  if (_origHandleLogout) await _origHandleLogout();
+};
+
+// Start GPS tracking once role is confirmed as driver
+const _spyRoleCheckInterval = setInterval(() => {
+  if (currentUser && window.userRole === 'driver') {
+    clearInterval(_spyRoleCheckInterval);
+    startDriverGPS();
+  }
+}, 1000);
+
+
+// ── ADMIN SIDE: modal de espionagem com Google Maps ──
+(function() {
+  let spyMap = null;
+  let spyMarkers = {}; // uid → { marker, infoEl }
+  let spyRtdbRef = null;
+  let spyCenterUid = null;
+
+  const DRIVER_COLORS = ['#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63'];
+  function colorForIndex(i) { return DRIVER_COLORS[i % DRIVER_COLORS.length]; }
+
+  function buildDriverMarkerSVG(initial, color) {
+    return `
+      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="50" viewBox="0 0 40 50">
+        <defs>
+          <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.4)"/>
+          </filter>
+        </defs>
+        <path d="M20 0 C9 0 0 9 0 20 C0 32 20 50 20 50 C20 50 40 32 40 20 C40 9 31 0 20 0Z" fill="${color}" filter="url(#sh)"/>
+        <circle cx="20" cy="19" r="11" fill="white" opacity="0.95"/>
+        <text x="20" y="24" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="13" font-weight="800" fill="${color}">${initial}</text>
+      </svg>
+    `.trim();
+  }
+
+  function timeAgo(ts) {
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 10) return 'agora';
+    if (sec < 60) return `${sec}s atrás`;
+    if (sec < 3600) return `${Math.floor(sec/60)}min atrás`;
+    return `${Math.floor(sec/3600)}h atrás`;
+  }
+
+  function initSpyMap() {
+    if (spyMap) return;
+    // Default center: Brazil center-ish
+    const defaultCenter = { lat: -15.78, lng: -47.93 };
+    spyMap = new google.maps.Map(document.getElementById('spy-map'), {
+      zoom: 13,
+      center: defaultCenter,
+      mapTypeId: 'roadmap',
+      styles: document.body.classList.contains('dm') ? DARK_MAP_STYLE : [],
+      disableDefaultUI: false,
+      zoomControl: true,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+    });
+  }
+
+  // Dark map style (same approach as app)
+  const DARK_MAP_STYLE = [
+    {elementType:'geometry',stylers:[{color:'#1d2c4d'}]},
+    {elementType:'labels.text.fill',stylers:[{color:'#8ec3b9'}]},
+    {elementType:'labels.text.stroke',stylers:[{color:'#1a3646'}]},
+    {featureType:'road',elementType:'geometry',stylers:[{color:'#304a7d'}]},
+    {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#98a5be'}]},
+    {featureType:'water',elementType:'geometry',stylers:[{color:'#0e1626'}]},
+    {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#4e6d70'}]},
+  ];
+
+  let spyPolylines = {}; // uid → google.maps.Polyline
+
+  window.drawSpyRoute = async function(uid, missionId, color) {
+    if (!spyMap || !uid || !missionId) return;
+    
+    // Se já tem uma linha aparecendo, remove
+    if (spyPolylines[uid]) {
+      spyPolylines[uid].setMap(null);
+    }
+
+    try {
+      // Busca os pontos da missão no Firestore
+      const missionRef = doc(db, 'users', uid, 'history', missionId);
+      const snap = await getDoc(missionRef);
+      if (!snap.exists()) return;
+
+      const mData = snap.data();
+      const points = mData.points || [];
+      if (points.length === 0) return;
+
+      const pathCoords = points.filter(p => p.lat && p.lng).map(p => ({ lat: p.lat, lng: p.lng }));
+      
+      const poly = new google.maps.Polyline({
+        path: pathCoords,
+        geodesic: true,
+        strokeColor: color,
+        strokeOpacity: 0.8,
+        strokeWeight: 4,
+        map: spyMap
+      });
+
+      spyPolylines[uid] = poly;
+
+      // Opcional: Adicionar marcadores simples para as paradas?
+      // Por enquanto vamos manter apenas a linha para não poluir muito.
+    } catch(e) {
+      console.warn("Erro ao desenhar rota espiã:", e);
+    }
+  };
+
+  function updateDriverPills(driversData) {
+    const bar = document.getElementById('spy-driver-bar');
+    if (!bar) return;
+    bar.innerHTML = '';
+
+    const entries = Object.entries(driversData);
+    if (entries.length === 0) {
+      bar.innerHTML = '<span style="font-size:11px;color:var(--pr-text-muted);">Nenhum motorista online agora</span>';
+      document.getElementById('spy-status-txt').textContent = 'Nenhum motorista online';
+      return;
+    }
+
+    document.getElementById('spy-status-txt').textContent = `${entries.length} motorista${entries.length > 1 ? 's' : ''} online`;
+
+    entries.forEach(([uid, data], i) => {
+      const color = colorForIndex(i);
+      const name = data.name || 'Motorista';
+      const initial = name.charAt(0).toUpperCase();
+      const speed = data.speed || 0;
+      const ago = timeAgo(data.ts || Date.now());
+      const isSelected = spyCenterUid === uid;
+
+      const nearest = data.nearestStop;
+      const nearestText = nearest ? `<div style="font-size:9px;color:${color};font-weight:700;margin-top:2px;">📍 Próximo: ${nearest.name} (${nearest.distance}km)</div>` : '';
+
+      const pill = document.createElement('button');
+      pill.style.cssText = `
+        display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:20px;
+        border:1.5px solid ${isSelected ? color : 'var(--pr-border)'};
+        background:${isSelected ? color + '22' : 'var(--pr-bg)'};
+        cursor:pointer;white-space:nowrap;flex-shrink:0;font-family:var(--font-main);
+        transition:all 0.15s;
+      `;
+      pill.innerHTML = `
+        <div style="width:22px;height:22px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;">
+          <span style="font-size:11px;font-weight:800;color:#fff;">${initial}</span>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--pr-text);">${escapeHTML(name)}</div>
+          <div style="font-size:10px;color:var(--pr-text-muted);">${speed} km/h · ${ago}</div>
+          ${nearestText}
+        </div>
+      `;
+      pill.onclick = () => {
+        spyCenterUid = uid;
+        if (spyMap && data.lat && data.lng) {
+          spyMap.panTo({ lat: data.lat, lng: data.lng });
+          spyMap.setZoom(16);
+          if (data.missionId) window.drawSpyRoute(uid, data.missionId, color);
+        }
+        updateDriverPills(driversData); // re-render pills with new selection
+      };
+      bar.appendChild(pill);
+    });
+  }
+
+  function updateDriverMarkers(driversData) {
+    if (!spyMap) return;
+    const bounds = new google.maps.LatLngBounds();
+    let hasAny = false;
+
+    // Remove markers for drivers no longer present
+    Object.keys(spyMarkers).forEach(uid => {
+      if (!driversData[uid]) {
+        spyMarkers[uid].marker.setMap(null);
+        delete spyMarkers[uid];
+      }
+    });
+
+    Object.entries(driversData).forEach(([uid, data], i) => {
+      if (!data.lat || !data.lng) return;
+      const pos = { lat: data.lat, lng: data.lng };
+      const color = colorForIndex(i);
+      const name = data.name || 'Motorista';
+      const initial = name.charAt(0).toUpperCase();
+      const speed = data.speed || 0;
+      const ago = timeAgo(data.ts || Date.now());
+
+      const nearest = data.nearestStop;
+      const nearestHTML = nearest ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:4px;">📍 Próximo: ${nearest.name} (${nearest.distance}km)</div>` : '';
+
+      const svgStr = buildDriverMarkerSVG(initial, color);
+      const svgUrl = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svgStr);
+
+      if (spyMarkers[uid]) {
+        // Update position
+        spyMarkers[uid].marker.setPosition(pos);
+        spyMarkers[uid].marker.setTitle(`${name} — ${speed} km/h`);
+        spyMarkers[uid].infoWin.setContent(`
+          <div style="font-family:Inter,Arial,sans-serif;padding:4px 2px;min-width:160px;">
+            <div style="font-weight:700;font-size:13px;color:#1a2b3d;margin-bottom:4px;">${escapeHTML(name)}</div>
+            <div style="font-size:11px;color:#6B7C8E;margin-bottom:2px;">🚗 ${speed} km/h</div>
+            <div style="font-size:11px;color:#6B7C8E;margin-bottom:4px;">⏱ ${ago}</div>
+            ${nearestHTML}
+            <a href="https://www.google.com/maps?q=${data.lat},${data.lng}" target="_blank"
+              style="font-size:11px;color:#1A6BAF;font-weight:600;">Ver no Google Maps ↗</a>
+          </div>
+        `);
+      } else {
+        // Create new marker
+        const marker = new google.maps.Marker({
+          position: pos,
+          map: spyMap,
+          title: `${name} — ${speed} km/h`,
+          icon: { url: svgUrl, scaledSize: new google.maps.Size(40, 50), anchor: new google.maps.Point(20, 50) },
+          zIndex: 1000 + i
+        });
+
+        // Info window
+        const infoWin = new google.maps.InfoWindow({
+          content: `
+            <div style="font-family:Inter,Arial,sans-serif;padding:4px 2px;min-width:160px;">
+              <div style="font-weight:700;font-size:13px;color:#1a2b3d;margin-bottom:4px;">${escapeHTML(name)}</div>
+              <div style="font-size:11px;color:#6B7C8E;margin-bottom:2px;">🚗 ${speed} km/h</div>
+              <div style="font-size:11px;color:#6B7C8E;margin-bottom:4px;">⏱ ${ago}</div>
+              ${nearestHTML}
+              <a href="https://www.google.com/maps?q=${data.lat},${data.lng}" target="_blank"
+                style="font-size:11px;color:#1A6BAF;font-weight:600;">Ver no Google Maps ↗</a>
+            </div>
+          `
+        });
+        marker.addListener('click', () => {
+          infoWin.open(spyMap, marker);
+          spyCenterUid = uid;
+        });
+
+        spyMarkers[uid] = { marker, infoWin };
+      }
+
+      bounds.extend(pos);
+      hasAny = true;
+    });
+
+    // Auto-fit map if no manual selection, or follow selected driver
+    if (hasAny) {
+      if (spyCenterUid && driversData[spyCenterUid]) {
+        const d = driversData[spyCenterUid];
+        spyMap.panTo({ lat: d.lat, lng: d.lng });
+      } else if (Object.keys(spyMarkers).length > 0) {
+        // Fit all markers only on first load
+        if (Object.keys(spyMarkers).length === Object.keys(driversData).length && !spyCenterUid) {
+          spyMap.fitBounds(bounds, { padding: 60 });
+        }
+      }
+    }
+  }
+
+  window.openLiveSpy = function(targetUid) {
+    document.getElementById('liveSpyModal').classList.add('active');
+    spyCenterUid = targetUid || null;
+
+    // Init map on first open
+    setTimeout(() => {
+      initSpyMap();
+
+      // Subscribe to RTDB for this admin's drivers
+      const adminKey = window.companyId || (currentUser && currentUser.uid);
+      if (!adminKey) {
+        document.getElementById('spy-status-txt').textContent = 'Erro: admin não identificado';
+        return;
+      }
+
+      spyRtdbRef = rtdbRef(rtdb, `locations/${adminKey}`);
+      onValue(spyRtdbRef, (snapshot) => {
+        const raw = snapshot.val() || {};
+        updateDriverPills(raw);
+        updateDriverMarkers(raw);
+        
+        // If we have a targetUid and it's in the data, center once
+        if (spyCenterUid && raw[spyCenterUid]) {
+          const loc = raw[spyCenterUid];
+          if (loc.lat && loc.lng && spyMap) {
+            spyMap.setCenter({ lat: loc.lat, lng: loc.lng });
+            spyMap.setZoom(16);
+            spyCenterUid = null; // Clear so it doesn't keep centering if user moves map
+          }
+        }
+      }, (err) => {
+        console.warn('RTDB spy error:', err);
+        document.getElementById('spy-status-txt').textContent = 'Erro ao conectar ao RTDB';
+      });
+    }, 150); 
+  };
+
+  window.closeLiveSpy = function() {
+    document.getElementById('liveSpyModal').classList.remove('active');
+    // Unsubscribe from RTDB
+    if (spyRtdbRef) {
+      off(spyRtdbRef);
+      spyRtdbRef = null;
+    }
+    // Clear polylines
+    Object.values(spyPolylines).forEach(p => p.setMap(null));
+    spyPolylines = {};
+    // Clear markers
+    Object.values(spyMarkers).forEach(m => m.marker.setMap(null));
+    spyMarkers = {};
+  };
+
+  // --- DRIVER STATS LOGIC ---
+  window.openDriverStats = async function(uid, name) {
+    const modal = document.getElementById('driverStatsModal');
+    if (!modal) return;
+    
+    modal.classList.add('active');
+    document.getElementById('statsDriverName').textContent = name;
+    document.getElementById('statsDriverAvatar').textContent = name.charAt(0).toUpperCase();
+    
+    const listContainer = document.getElementById('statsHistoryList');
+    listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">⏳ Analisando rotas...</div>';
+    
+    try {
+      // Query concluded routes
+      const q = query(
+        collection(db, "users", uid, "history"),
+        orderBy("createdAt", "desc"),
+        limit(20)
+      );
+      
+      const snap = await getDocs(q);
+      let totalRoutes = 0;
+      let totalStops = 0;
+      
+      if (snap.empty) {
+        listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">Nenhuma rota encontrada para este motorista.</div>';
+        document.getElementById('statTotalRoutes').textContent = '0';
+        document.getElementById('statTotalStops').textContent = '0';
+        return;
+      }
+      
+      listContainer.innerHTML = '';
+      
+      snap.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.status === 'CONCLUDED' || data.status === 'Concluída') {
+          totalRoutes++;
+          totalStops += (data.stopsCount || (data.stops ? data.stops.length : 0));
+        }
+        
+        const date = data.createdAt ? data.createdAt.toDate().toLocaleDateString('pt-BR') : '—';
+        const stops = data.stopsCount || (data.stops ? data.stops.length : 0);
+        const statusClass = (data.status === 'CONCLUDED' || data.status === 'Concluída') ? 'concluded' : 'pending';
+        const statusLabel = (data.status === 'CONCLUDED' || data.status === 'Concluída') ? 'Concluída' : data.status;
+
+        const item = document.createElement('div');
+        item.className = 'stats-history-card';
+        item.innerHTML = `
+          <div class="history-info">
+            <div class="history-date">${date}</div>
+            <div class="history-meta">${stops} paradas • ${data.distance || '—'} km</div>
+          </div>
+          <div class="history-status ${statusClass}">${statusLabel}</div>
+        `;
+        listContainer.appendChild(item);
+      });
+      
+      document.getElementById('statTotalRoutes').textContent = totalRoutes;
+      document.getElementById('statTotalStops').textContent = totalStops;
+      
+    } catch (err) {
+      console.error("Erro ao carregar estatísticas:", err);
+      listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">Erro ao carregar dados.</div>';
+    }
+  };
+
+  window.closeDriverStatsModal = function() {
+    const modal = document.getElementById('driverStatsModal');
+    if (modal) modal.classList.remove('active');
+  };
+
+})();

@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Routes — Prodesivo</title>
+<link rel="stylesheet" href="app.css?v=5"/>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCwFuaNuzw50bn9CV2RnP3xTx8TNcFr6D4"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+</head>
+<body>
+
+<!-- OVERLAY DE CARREGAMENTO -->
+<div id="appLoader" style="position:fixed; top:0; left:0; width:100%; height:100%; background:var(--pr-bg); z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+  
+  <div style="width: 180px; height: 40px; position: relative; margin-bottom: 20px;">
+    <!-- Rota pontilhada -->
+    <div class="ld-line" style="position: absolute; top: 50%; left: 10px; right: 10px; height: 2px; transform: translateY(-50%);"></div>
+    
+    <!-- Ponto A (Partida) -->
+    <div class="ld-point" style="position: absolute; top: 50%; left: 0; width: 14px; height: 14px; border-radius: 50%; background: var(--pr-bg); transform: translateY(-50%); z-index: 1;"></div>
+    
+    <!-- Ponto B (Destino) -->
+    <div class="ld-point" style="position: absolute; top: 50%; right: 0; width: 14px; height: 14px; border-radius: 50%; background: var(--pr-bg); transform: translateY(-50%); z-index: 1;"></div>
+    
+    <!-- Caminhão Animado -->
+    <div style="position: absolute; top: 50%; left: 0; font-size: 26px; z-index: 2; transform: translate(-50%, -50%) scaleX(-1); animation: driveRoute 2s infinite ease-in-out;">
+      🚚
+    </div>
+  </div>
+
+  <div class="ld-text" style="font-size:13px; font-weight:800; letter-spacing:1.5px;">CARREGANDO ROTA...</div>
+  
+  <style>
+    /* Default (Light Mode): All Blue */
+    .ld-line { border-top: 2px dashed rgba(13,72,123,0.4); }
+    .ld-point { border: 3px solid #0D487B; }
+    .ld-text { color: #0D487B; }
+
+    /* Dark Mode: All White */
+    body.dm .ld-line { border-top: 2px dashed rgba(255,255,255,0.4); }
+    body.dm .ld-point { border: 3px solid #ffffff; }
+    body.dm .ld-text { color: #ffffff; }
+
+    @keyframes driveRoute {
+      0% { left: 0%; opacity: 0; }
+      15% { opacity: 1; }
+      85% { left: 100%; opacity: 1; }
+      100% { left: 100%; opacity: 0; }
+    }
+  </style>
+</div>
+
+<div class="shell" id="shell" style="visibility: hidden;">
+  <nav class="nav">
+    <div class="nav-brand">
+      <div class="nav-logo">
+        <img src="novo_logo_app.png" style="width: 100%; height: 100%; border-radius: 8px; object-fit: contain;">
+      </div>
+      <span class="nav-title" style="color:#fff;font-weight:700;margin-left:8px;">ROUTES</span>
+    </div>
+    <div class="nav-right">
+      <div class="temp-card" title="Luziânia, GO">
+        <span class="temp-icon">☀</span>
+        <div class="temp-col">
+          <span class="temp-val">24°C</span>
+          <span class="temp-loc">Luziânia, GO</span>
+        </div>
+      </div>
+      <button class="mode-btn" onclick="toggleAppTheme()">☀ / ☾</button>
+      <div class="nav-av" onclick="handleLogout()" title="Sair da Conta" style="cursor: pointer; display: flex; align-items: center; justify-content: center; background: transparent; color: #fff;">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line>
+        </svg>
+      </div>
+    </div>
+  </nav>
+
+  <div class="body">
+    <!-- ═══════════ ADMIN PANEL ═══════════ -->
+    <aside class="sidebar" id="adminPanel">
+
+      <div class="cards-section">
+        <!-- Dashboard do Admin -->
+        <div class="acard" id="adminHubBtn" style="display:none; background: linear-gradient(135deg, #1A6BAF, #0D487B); color: #fff;" onclick="window.openAdminHub()">
+          <div class="acard-icon" style="color:#fff;">📡</div>
+          <div class="acard-body">
+            <div class="acard-title" style="color:#fff;">Painel da Frota</div>
+            <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Acompanhe o status e as rotas dos motoristas</div>
+          </div>
+          <span class="acard-arr" style="color:#fff;">›</span>
+        </div>
+
+        <!-- Minha Frota (Convidar Motorista) — Admin Only -->
+        <div class="acard" id="fleetManageBtn" style="display:none; background: linear-gradient(135deg, #27ae60, #1e8449); color: #fff;" onclick="window.openFleetModal()">
+          <div class="acard-icon" style="color:#fff;">👥</div>
+          <div class="acard-body">
+            <div class="acard-title" style="color:#fff;">Minha Frota</div>
+            <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Convide e gerencie seus motoristas</div>
+          </div>
+          <span class="acard-arr" style="color:#fff;">›</span>
+        </div>
+
+        <div class="acard c1" onclick="alert('Funcionalidade de Rota Inteligente Otimizada (Google AI) será disponibilizada na próxima atualização!')">
+          <div class="acard-icon">⟳</div>
+          <div class="acard-body">
+            <div class="acard-title">Criar Rota Automática</div>
+            <div class="acard-desc">Gere a melhor rota entre os pontos</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+        <div class="acard c1m" onclick="openBuilderModal()">
+          <div class="acard-icon">✏</div>
+          <div class="acard-body">
+            <div class="acard-title">Criar Rota Manual</div>
+            <div class="acard-desc">Defina a ordem dos pontos você mesmo</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+        <div class="acard c2" id="addLocBtn" onclick="openLocModal()">
+          <div class="acard-icon">＋</div>
+          <div class="acard-body">
+            <div class="acard-title">Adicionar Local</div>
+            <div class="acard-desc">Insira um novo endereço à lista</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+        <div class="acard c3" id="searchLocBtn" onclick="openSearchModal()">
+          <div class="acard-icon" style="color:var(--pr-blue-dark);">⊙</div>
+          <div class="acard-body">
+            <div class="acard-title">Pesquisar Locais</div>
+            <div class="acard-desc">Busque por nome, CEP ou endereço</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+        <div class="acard" style="background: linear-gradient(135deg, #6c5ce7, #4834d4); color: #fff;" onclick="window.openQrModal()">
+          <div class="acard-icon" style="color:#fff;">📱</div>
+          <div class="acard-body">
+            <div class="acard-title" style="color:#fff;">QR Code Localização</div>
+            <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Gere QR de links do Maps ou WhatsApp</div>
+          </div>
+          <span class="acard-arr" style="color:#fff;">›</span>
+        </div>
+        <!-- Espionar Rota ao Vivo — Admin Only -->
+        <div class="acard" id="liveSpyBtn" style="display:none; background: linear-gradient(135deg, #c0392b, #922b21); color: #fff;" onclick="window.openLiveSpy()">
+          <div class="acard-icon" style="color:#fff;">🛠️</div>
+          <div class="acard-body">
+            <div class="acard-title" style="color:#fff;">Espionar ao Vivo</div>
+            <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Localização dos motoristas em tempo real</div>
+          </div>
+          <span class="acard-arr" style="color:#fff;">›</span>
+        </div>
+      </div>
+
+      <div class="sec-label">Recentes</div>
+      <div class="loc-list" id="recentList">
+        <!-- Itens recentes via JS -->
+      </div>
+    </aside>
+
+    <!-- ═══════════ DRIVER PANEL ═══════════ -->
+    <aside class="sidebar" id="driverPanel" style="display:none;">
+      <div class="cards-section">
+        <!-- Minhas Rotas — abre o modal -->
+        <div class="acard" style="background: linear-gradient(135deg, #1A6BAF, #0D487B); color: #fff;" onclick="window.openDriverRoutesModal()">
+          <div class="acard-icon" style="color:#fff;">📋</div>
+          <div class="acard-body">
+            <div class="acard-title" style="color:#fff;">Minhas Rotas</div>
+            <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Veja as rotas do dia enviadas pelo admin</div>
+          </div>
+          <span class="acard-arr" style="color:#fff;">›</span>
+        </div>
+
+        <!-- Abrir Google Maps -->
+        <div class="acard c2" onclick="openGoogleMaps()">
+          <div class="acard-icon">🗺</div>
+          <div class="acard-body">
+            <div class="acard-title">Abrir Google Maps</div>
+            <div class="acard-desc">Navegue até o destino da rota ativa</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+
+        <!-- Pesquisar Locais (Para o Motorista) -->
+        <div class="acard c3" onclick="openSearchModal()">
+          <div class="acard-icon" style="color:var(--pr-blue-dark);">⊙</div>
+          <div class="acard-body">
+            <div class="acard-title">Buscar Endereços</div>
+            <div class="acard-desc">Veja os locais adicionados pelo Admin</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+        <div class="acard" style="background: linear-gradient(135deg, #00b894, #00695c); color: #fff;" onclick="window.openQrScanModal()">
+          <div class="acard-icon" style="color:#fff;">📷</div>
+          <div class="acard-body">
+            <div class="acard-title" style="color:#fff;">Leitor de QR Code</div>
+            <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Escaneie e navegue até a localização</div>
+          </div>
+          <span class="acard-arr" style="color:#fff;">›</span>
+        </div>
+
+        <!-- Adicionar Local Pessoal -->
+        <div class="acard c4" onclick="openLocModal()">
+          <div class="acard-icon" style="color:var(--pr-blue-dark);">＋</div>
+          <div class="acard-body">
+            <div class="acard-title">Add Local Pessoal</div>
+            <div class="acard-desc">Salve endereços só para você</div>
+          </div>
+          <span class="acard-arr">›</span>
+        </div>
+      </div>
+
+      <div class="sec-label">Rota Ativa</div>
+      <div id="driverActiveRoute" style="padding: 0 13px 10px;">
+        <div style="padding: 15px; text-align: center; font-size: 11px; color: var(--pr-text-muted); opacity: 0.6;">Abra "Minhas Rotas" para ver suas entregas</div>
+      </div>
+    </aside>
+
+    <div class="map-surface">
+
+      <div class="map-pill" id="mapStatsPill" style="padding:8px 20px;">
+        <span class="text-dark-auto" style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">Rode com mais facilidade e menos tempo</span>
+      </div>
+      <svg class="map-svg" viewBox="0 0 700 548" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+        <rect width="700" height="548" fill="#C8DCE8"/>
+        <rect x="40"  y="60"  width="110" height="70"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="170" y="40"  width="80"  height="55"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="270" y="80"  width="95"  height="60"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="400" y="55"  width="120" height="80"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="550" y="40"  width="100" height="65"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="80"  y="200" width="90"  height="65"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="200" y="180" width="130" height="75"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="380" y="190" width="100" height="60"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="510" y="170" width="140" height="80"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="50"  y="340" width="120" height="80"  rx="3" fill="#B4CDD9" opacity=".65"/>
+        <rect x="210" y="320" width="100" height="70"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="350" y="340" width="130" height="75"  rx="3" fill="#B4CDD9" opacity=".7"/>
+        <rect x="520" y="310" width="120" height="90"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="100" y="460" width="90"  height="60"  rx="3" fill="#B4CDD9" opacity=".55"/>
+        <rect x="280" y="440" width="110" height="70"  rx="3" fill="#B4CDD9" opacity=".6"/>
+        <rect x="440" y="450" width="130" height="65"  rx="3" fill="#B4CDD9" opacity=".55"/>
+        <rect x="0"   y="155" width="700" height="8"   fill="#FFFFFF" opacity=".85"/>
+        <rect x="0"   y="300" width="700" height="7"   fill="#FFFFFF" opacity=".8"/>
+        <rect x="0"   y="430" width="700" height="6"   fill="#FFFFFF" opacity=".75"/>
+        <rect x="155" y="0"   width="7"   height="548" fill="#FFFFFF" opacity=".8"/>
+        <rect x="330" y="0"   width="7"   height="548" fill="#FFFFFF" opacity=".75"/>
+        <rect x="490" y="0"   width="6"   height="548" fill="#FFFFFF" opacity=".75"/>
+        <polyline points="90,370 90,300 165,160 240,160 335,160 335,300 500,300 500,370 610,370"
+          stroke="#0D487B" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="10,4" opacity=".9"/>
+        <circle cx="90"  cy="370" r="15" fill="#0D487B"/>
+        <circle cx="90"  cy="370" r="7" fill="#fff"/>
+        <text x="90"  y="405" text-anchor="middle" font-size="14" fill="#0D487B" font-weight="900" font-family="sans-serif">Prodesivo</text>
+        <circle cx="335" cy="160" r="10" fill="#1A6BAF"/>
+        <circle cx="335" cy="160" r="4"  fill="#fff"/>
+        <text x="335" y="149" text-anchor="middle" font-size="9" fill="#1A6BAF" font-weight="700" font-family="sans-serif">P2</text>
+        <circle cx="500" cy="300" r="10" fill="#1A6BAF"/>
+        <circle cx="500" cy="300" r="4"  fill="#fff"/>
+        <text x="500" y="289" text-anchor="middle" font-size="9" fill="#1A6BAF" font-weight="700" font-family="sans-serif">P3</text>
+        <circle cx="610" cy="370" r="15" fill="#9AC8E2"/>
+        <circle cx="610" cy="370" r="7"  fill="#0D487B"/>
+        <text x="610" y="405" text-anchor="middle" font-size="14" fill="#0D487B" font-weight="900" font-family="sans-serif">CLIENTE</text>
+        <rect x="4" y="530" width="90" height="14" rx="3" fill="rgba(255,255,255,0.6)"/>
+        <text x="8" y="541" font-size="8" fill="#666" font-family="sans-serif">© Google Maps</text>
+      </svg>
+
+      <div class="pd-badge" id="pdRouteDetails" style="max-width: 250px; text-align: center;">
+        <div class="text-dark-auto" style="font-weight: 700; margin-bottom: 2px;">Prodesivo — Routes</div>
+        <div style="font-size: 9px; color: var(--pr-text-muted); margin-bottom: 8px; font-style: italic; opacity: 0.8;">Facilitando suas entregas</div>
+        <div id="adminCardMessage" style="display:none; font-size: 9px; color: var(--pr-blue-dark); background: rgba(26,107,175,0.08); padding: 6px 10px; border-radius: 6px; margin-bottom: 8px; font-weight: 600;">📡 Gerencie sua frota pelo painel abaixo</div>
+        <div id="routePreviewContainer" style="display:none; margin-bottom: 8px; border-radius: 8px; overflow: hidden; border: 1px solid var(--pr-border); cursor: pointer;" onclick="event.stopPropagation(); openGoogleMaps()">
+          <img id="routePreviewImg" src="" style="width: 100%; height: auto; display: block; background: #eee;" title="Clique para abrir no Google Maps"/>
+        </div>
+        <div id="routeStopList" style="font-size: 8px; margin-top: 4px; opacity: 0.8; max-height: 80px; overflow-y: auto;"></div>
+        <div id="routeActionContainer" style="display:none; margin-top: 8px;">
+          <a id="routeExternalLink" href="#" target="_blank" onclick="event.stopPropagation(); return openGoogleMaps(event)" style="display: block; background: var(--pr-blue-dark); color: #fff; text-decoration: none; text-align: center; padding: 6px; border-radius: 6px; font-size: 10px; font-weight: 600;">🚀 Iniciar Navegação</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="daily-route-card" id="dailyRouteCard" style="cursor:pointer; margin-top: 30px;" onclick="window.handleDailyCardClick()">
+      <div class="drc-preview" style="position:relative; background-color: var(--pr-bg);">
+        <img src="capa.png" id="drcPreviewImg" alt="Capa Rota" style="width: 100%; height: 100%; object-fit: cover; transform: translateX(5px) scale(0.92);">
+      </div>
+      <div class="drc-content">
+        <div class="drc-info">
+          <h4 class="drc-title" id="drcTitle">Rota de Hoje</h4>
+          <p class="drc-desc" id="drcDate">Aguardando rota do dia...</p>
+        </div>
+        <div class="drc-footer">
+          <div class="drc-link-group">
+            <svg class="drc-link-svg" viewBox="0 0 24 24" fill="currentColor"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+            <span class="drc-link-text" id="drcLinkText">—</span>
+          </div>
+          <img src="https://www.gstatic.com/images/branding/product/2x/maps_96dp.png" class="drc-google-icon">
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ FLEET PANEL — Rotas Futuras (Flutuante sobre o mapa — Admin) ═══ -->
+    <div id="fleetPanel" class="fleet-panel" style="display:none;">
+      <!-- VIEW 1: Lista de Motoristas -->
+      <div id="fpDriversView">
+        <div class="fleet-panel-header">
+          <div>
+            <h3 class="fleet-panel-title">📅 Rotas Futuras</h3>
+            <p class="fleet-panel-subtitle">Selecione um motorista para programar rotas</p>
+          </div>
+          <button class="fleet-panel-close" onclick="window.closeFleetPanel()">✕</button>
+        </div>
+        <div id="fleetPanelGrid" class="fleet-panel-grid">
+          <!-- Driver cards são inseridos pelo JS -->
+        </div>
+      </div>
+      <!-- VIEW 2: Detalhe do Motorista — Rotas Agendadas -->
+      <div id="fpDriverDetail" style="display:none; flex-direction:column; height:100%;">
+        <div class="fleet-panel-header">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button class="fp-back-btn" onclick="window.fpBackToDrivers()" title="Voltar">←</button>
+            <div>
+              <h3 class="fleet-panel-title" id="fpDetailName">Motorista</h3>
+              <p class="fleet-panel-subtitle" id="fpDetailEmail">email</p>
+            </div>
+          </div>
+          <button class="fleet-panel-close" onclick="window.closeFleetPanel()">✕</button>
+        </div>
+        <div class="fp-detail-body">
+          <!-- Botão Agendar Nova Rota -->
+          <button class="fp-schedule-btn" onclick="window.fpOpenScheduleModal()">
+            <span style="font-size:18px;">＋</span>
+            <span>Agendar Nova Rota</span>
+          </button>
+          <!-- Lista de rotas agendadas -->
+          <div class="fp-section-label">Rotas Programadas</div>
+          <div id="fpScheduledList" class="fp-scheduled-list">
+            <div style="padding:30px 20px; text-align:center;">
+              <div style="font-size:36px; margin-bottom:10px; opacity:0.4;">📭</div>
+              <div style="font-size:12px; font-weight:600; color:var(--pr-text-muted);">Nenhuma rota agendada</div>
+              <div style="font-size:10px; color:var(--pr-text-muted); margin-top:4px;">Clique em "Agendar Nova Rota" para começar</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ MODAL DE AGENDAMENTO DE ROTA ═══ -->
+    <div class="modal-overlay" id="scheduleRouteModal" onclick="window.fpCloseScheduleModal()">
+      <div class="modal-content" style="max-height:85vh; width:95%; max-width:500px; display:flex; flex-direction:column; padding:20px;" onclick="event.stopPropagation()">
+        <div class="modal-title" style="margin-bottom:4px;">📅 Agendar Rota</div>
+        <div class="modal-desc" style="margin-bottom:14px;">Programe uma rota para <strong id="schedDriverName">motorista</strong></div>
+
+        <!-- Data e Hora -->
+        <div style="display:flex; gap:10px; margin-bottom:14px;">
+          <div style="flex:1;">
+            <label class="fp-field-label">Data de Envio</label>
+            <input type="date" id="schedDate" class="modal-input" style="margin-bottom:0; height:40px; font-size:12px;" />
+          </div>
+          <div style="flex:0 0 120px;">
+            <label class="fp-field-label">Horário</label>
+            <input type="time" id="schedTime" class="modal-input" style="margin-bottom:0; height:40px; font-size:12px;" value="08:00" />
+          </div>
+        </div>
+
+        <!-- Nota opcional -->
+        <label class="fp-field-label">Observação (opcional)</label>
+        <input type="text" id="schedNote" class="modal-input" placeholder="Ex: Entregar primeiro na loja central" style="margin-bottom:14px; height:38px; font-size:12px;" />
+
+        <!-- Seleção de pontos -->
+        <div style="flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0; margin-bottom:8px;">
+          <div class="fp-field-label" style="margin-bottom:6px;">Pontos da Rota</div>
+          <div id="schedRouteSequence" style="background:var(--pr-bg); border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:4px; margin-bottom:8px; max-height:120px; overflow-y:auto;">
+            <div style="font-size:10px; color:var(--pr-text-muted); text-align:center; padding:8px;">Nenhum ponto adicionado. Selecione abaixo.</div>
+          </div>
+          <input type="text" id="schedLocSearch" class="modal-input" placeholder="🔍 Pesquisar local para adicionar..." style="margin-bottom:6px; height:34px; font-size:12px; flex-shrink:0;" onkeyup="window.fpFilterScheduleLocations()" />
+          <div id="schedAvailableList" class="loc-list" style="overflow-y:auto; flex:1; padding:4px; min-height:60px; max-height:150px;">
+            <!-- Locais disponíveis renderizados pelo JS -->
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top:10px; flex-shrink:0;">
+          <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); window.fpCloseScheduleModal()">Cancelar</button>
+          <button class="mbtn mbtn-save" id="schedSaveBtn" onclick="event.stopPropagation(); window.fpSaveScheduledRoute()" style="flex:1; background:#27ae60;">📅 Agendar Rota</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ MODAL DE EDIÇÃO DE AGENDAMENTO ═══ -->
+    <div class="modal-overlay" id="editScheduledRouteModal" onclick="window.fpCloseEditSchedule()">
+      <div class="modal-content" style="max-height:85vh; width:95%; max-width:480px; display:flex; flex-direction:column; padding:0; overflow:hidden;" onclick="event.stopPropagation()">
+        <!-- Header -->
+        <div style="padding:16px 20px; border-bottom:1px solid var(--pr-border); display:flex; align-items:center; justify-content:space-between;">
+          <div>
+            <div class="modal-title" id="editSchedTitle" style="margin:0; font-size:15px;">✏️ Editar Agendamento</div>
+            <div id="editSchedDate" style="font-size:11px; color:var(--pr-text-muted); margin-top:2px;">📅 — · ⏰ —</div>
+          </div>
+          <button class="fleet-panel-close" onclick="window.fpCloseEditSchedule()" style="position:static;">✕</button>
+        </div>
+
+        <!-- Nota -->
+        <div id="editSchedNote" style="padding:0 20px; font-size:10px; color:var(--pr-blue-mid); font-style:italic; margin-top:10px;"></div>
+
+        <!-- Lista de paradas -->
+        <div style="padding:10px 20px 4px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--pr-text-muted);">Paradas da Rota</div>
+        <div id="editSchedStopsList" style="flex:1; overflow-y:auto; padding:6px 20px; display:flex; flex-direction:column; gap:6px; min-height:80px; max-height:220px;">
+        </div>
+
+        <!-- Seção para adicionar paradas -->
+        <div id="editSchedAddSection" style="padding:8px 20px; border-top:1px solid var(--pr-border);">
+          <input type="text" id="editSchedSearch" class="modal-input" placeholder="🔍 Adicionar nova parada..." style="margin-bottom:4px; height:34px; font-size:11px;" onkeyup="window.fpFilterEditSchedLocations()" />
+          <div id="editSchedAvailList" class="loc-list" style="overflow-y:auto; max-height:100px; padding:2px;">
+          </div>
+        </div>
+
+        <!-- Botão Salvar -->
+        <div style="padding:12px 20px; border-top:1px solid var(--pr-border);">
+          <button class="mbtn mbtn-save" id="editSchedSaveBtn" onclick="event.stopPropagation(); window.fpSaveEditSchedule()" style="width:100%; background:var(--pr-blue-dark); padding:12px; font-size:13px; font-weight:700;">💾 Salvar Alterações</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom nav (mobile only) -->
+  <nav class="bottom-nav" id="bottomNavAdmin">
+    <div class="bn-item active" onclick="openGoogleMaps()" style="cursor:pointer;">
+      <span class="bn-icon">🗺</span>
+      <span class="bn-label">Mapa</span>
+    </div>
+    <div class="bn-item" onclick="openRouteChoiceModal()" style="cursor:pointer;">
+      <span class="bn-icon">⟳</span>
+      <span class="bn-label">Rotas</span>
+    </div>
+    <div class="bn-item" onclick="openLocModal()">
+      <span class="bn-icon">＋</span>
+      <span class="bn-label">Novo</span>
+    </div>
+    <div class="bn-item" onclick="openSearchModal()">
+      <span class="bn-icon">⊙</span>
+      <span class="bn-label">Buscar</span>
+    </div>
+  </nav>
+
+  <!-- Bottom nav (mobile only — DRIVER) -->
+  <nav class="bottom-nav" id="bottomNavDriver" style="display:none;">
+    <div class="bn-item active" onclick="openGoogleMaps()" style="cursor:pointer;">
+      <span class="bn-icon">🗺</span>
+      <span class="bn-label">Mapa</span>
+    </div>
+    <div class="bn-item" onclick="window.openDriverRoutesModal()" style="cursor:pointer;">
+      <span class="bn-icon">📋</span>
+      <span class="bn-label">Rotas</span>
+    </div>
+    <div class="bn-item" onclick="openLocModal()" style="cursor:pointer;">
+      <span class="bn-icon">＋</span>
+      <span class="bn-label">Novo</span>
+    </div>
+    <div class="bn-item" onclick="openSearchModal()" style="cursor:pointer;">
+      <span class="bn-icon">⊙</span>
+      <span class="bn-label">Buscar</span>
+    </div>
+  </nav>
+</div>
+
+<div class="modal-overlay" id="locModal" onclick="closeLocModal()">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-title" id="locModalTitle">Adicionar Local</div>
+    <div class="modal-desc">Insira um link do Google Maps ou endereço, e dê um nome (opcional).</div>
+    <input type="hidden" id="locEditingId" value=""/>
+    <input type="text" class="modal-input" id="locNameInput" placeholder="Nome do Local (Opcional)" style="margin-bottom:10px;"/>
+    <input type="text" class="modal-input" id="locInput" placeholder="Ex: https://goo.gl/maps/..."/>
+    <div class="modal-actions">
+      <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); closeLocModal()">Cancelar</button>
+      <button class="mbtn mbtn-save" id="locSaveBtn" onclick="event.stopPropagation(); saveLocation()">Salvar Local</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN HUB MODAL (Status da Frota) -->
+<div class="modal-overlay" id="adminHubModal" onclick="window.closeAdminHub()">
+  <div class="modal-content" style="max-height: 85vh; width: 95%; max-width: 600px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
+    <div class="modal-title" style="margin-bottom: 5px;">📍 Frota ao Vivo</div>
+    <div class="modal-desc" style="margin-bottom: 15px;">Acompanhamento das rotas de todos os motoristas</div>
+    
+    <div id="adminHubContent" style="flex: 1; overflow-y: auto; background: var(--pr-bg); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 10px;">
+      <p style="text-align:center; font-size:12px; color:var(--pr-text-muted);">Buscando motoristas, um momento...</p>
+    </div>
+
+    <div class="modal-actions" style="margin-top:15px; display:flex; justify-content:center;">
+      <button class="mbtn mbtn-cancel" style="width:100%;" onclick="event.stopPropagation(); window.closeAdminHub()">Fechar Painel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DRIVER DAILY ROUTE MODAL (Ver Rota e Iniciar) ═══ -->
+<div class="modal-overlay" id="driverDailyRouteModal" onclick="closeDriverDailyRouteModal()">
+  <div class="modal-content" style="max-height: 85vh; width: 95%; max-width: 500px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
+    <div class="modal-title" style="margin-bottom: 5px;">🚗 Minha Rota de Hoje</div>
+    <div class="modal-desc" style="margin-bottom: 15px;">Revise a ordem das paradas. Você pode arrastar para reordenar antes de iniciar.</div>
+    
+    <div style="background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+      <div style="font-size: 11px; font-weight: 600; color: var(--pr-text-muted); margin-bottom: 5px;">📝 Observação do Admin:</div>
+      <div id="driverDailyRouteNote" style="font-size: 13px; color: var(--pr-text); font-weight: 500;">Nenhuma observação.</div>
+    </div>
+
+    <!-- Lista de Paradas para Arrastar -->
+    <div id="driverDailyRoutePoints" style="flex: 1; overflow-y: auto; background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px;">
+      <!-- Paradas serão injetadas aqui -->
+    </div>
+
+    <div class="modal-actions" style="margin-top:auto; display:flex; gap: 10px;">
+      <button class="mbtn mbtn-cancel" style="flex:1;" onclick="event.stopPropagation(); closeDriverDailyRouteModal()">Cancelar</button>
+      <button class="mbtn mbtn-save" style="flex:1; background: #27ae60;" onclick="event.stopPropagation(); startDriverDailyRoute()">▶ Iniciar Rota (Ir)</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FLEET MANAGEMENT MODAL (Minha Frota) ═══ -->
+<div class="modal-overlay" id="fleetModal" onclick="window.closeFleetModal()">
+  <div class="modal-content" style="max-height: 85vh; width: 95%; max-width: 550px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
+    <div class="modal-title" style="margin-bottom: 5px;">👥 Minha Frota</div>
+    <div class="modal-desc" style="margin-bottom: 15px;">Gerencie e convide motoristas para sua equipe</div>
+    
+    <!-- View 1: Lista de Motoristas -->
+    <div id="fpDriversView" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+      <!-- Invite Section (Driver) -->
+      <div style="background: linear-gradient(135deg, rgba(39,174,96,0.08), rgba(30,132,73,0.12)); border: 1px solid rgba(39,174,96,0.2); border-radius: 12px; padding: 15px; margin-bottom: 15px; flex-shrink:0;">
+        <div class="text-dark-auto" style="font-size: 13px; font-weight: 700; margin-bottom: 5px;">🚗 Convite para Motoristas</div>
+        <div style="font-size: 11px; color: var(--pr-text-muted); margin-bottom: 10px;">Gere um link para o motorista se vincular à sua rota.</div>
+        <button class="mbtn mbtn-save" id="sendInviteBtn" onclick="event.stopPropagation(); window.sendDriverInvite()" style="width: 100%; font-size: 12px; font-weight:700; background: #27ae60;">🔗 Gerar Ficha Motorista</button>
+        
+        <!-- Generated invite link -->
+        <div id="inviteLinkResult" style="display: none; margin-top: 10px; background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 10px; font-weight: 700; color: var(--pr-text-muted); margin-bottom: 5px;">Copie e cole pro motorista:</div>
+          <div id="inviteLinkText" style="font-size: 11px; word-break: break-all; color: var(--pr-blue-mid); font-weight: 600; margin-bottom: 8px;"></div>
+          <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.copyInviteLink(this)" style="width: 100%; font-size: 11px; padding: 6px 0; background: var(--pr-blue-dark);">📋 Copiar</button>
+        </div>
+      </div>
+
+      <!-- Invite Section (Admin) -->
+      <div style="background: linear-gradient(135deg, rgba(230,126,34,0.08), rgba(211,84,0,0.12)); border: 1px solid rgba(230,126,34,0.2); border-radius: 12px; padding: 15px; margin-bottom: 15px; flex-shrink:0;">
+        <div class="text-dark-auto" style="font-size: 13px; font-weight: 700; margin-bottom: 5px; color: #d35400;">🛡️ Convite para Co-Admin</div>
+        <div style="font-size: 11px; color: var(--pr-text-muted); margin-bottom: 10px;">Gere uma chave secreta de acesso descartável e segura.</div>
+        <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.generateAdminInviteToken()" style="width: 100%; font-size: 12px; font-weight:700; background: #d35400; color: #fff;">🔑 Gerar Chave Secreta</button>
+        
+        <!-- Generated admin key -->
+        <div id="adminInviteResult" style="display: none; margin-top: 10px; background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 10px; font-weight: 700; color: var(--pr-text-muted); margin-bottom: 5px;">Chave gerada (Uso Único):</div>
+          <div id="adminInviteKeyText" style="font-size: 13px; word-break: break-all; color: #d35400; font-weight: 900; margin-bottom: 8px; text-align: center;"></div>
+          <div style="font-size: 9px; color: var(--pr-text-muted); margin-bottom: 8px;">Envie essa senha para o novo administrador.</div>
+        </div>
+      </div>
+
+      <!-- Drivers list -->
+      <div class="text-dark-auto" style="font-size: 12px; font-weight: 700; margin-bottom: 8px; flex-shrink:0;">🚗 Motoristas Vinculados</div>
+      <div id="fleetDriversList" style="flex: 1; overflow-y: auto; background: var(--pr-bg); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 100px;">
+        <p style="text-align:center; font-size:12px; color:var(--pr-text-muted);">Carregando...</p>
+      </div>
+
+      <div class="modal-actions" style="margin-top:15px; display:flex; justify-content:center; flex-shrink:0;">
+        <button class="mbtn mbtn-cancel" style="width:100%;" onclick="event.stopPropagation(); window.closeFleetModal()">Fechar</button>
+      </div>
+    </div>
+
+    <!-- View 2: Detalhe do Motorista e Rotas Agendadas -->
+    <div id="fpDriverDetail" style="display:none; flex-direction:column; flex:1; min-height:0;">
+      <div style="background:var(--pr-surface); border-radius:8px; padding:15px; margin-bottom:15px; border:1px solid var(--pr-border); flex-shrink:0; position:relative;">
+        <button onclick="event.stopPropagation(); window.fpBackToDrivers()" style="position:absolute; right:15px; top:15px; background:var(--pr-bg); border:1px solid var(--pr-border); border-radius:6px; padding:4px 8px; font-size:11px; cursor:pointer;" title="Voltar aos motoristas">❌ Voltar</button>
+        <div id="fpDetailName" style="font-size:16px; font-weight:800; color:var(--pr-text);">Motorista</div>
+        <div id="fpDetailEmail" style="font-size:11px; color:var(--pr-text-muted); margin-top:2px;">email@motorista.com</div>
+        <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.fpOpenScheduleModal()" style="width:100%; background:var(--pr-blue-dark); padding:10px 0; margin-top:15px; font-size:13px; display:flex; align-items:center; justify-content:center; gap:8px;"><span>➕</span> Agendar Nova Rota</button>
+      </div>
+      
+      <div class="text-dark-auto" style="font-size:12px; font-weight:700; margin-bottom:8px; flex-shrink:0;">📅 Rotas Agendadas</div>
+      <div id="fpScheduledList" style="flex:1; overflow-y:auto; background:var(--pr-bg); border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:100px;">
+        <p style="text-align:center; font-size:12px; color:var(--pr-text-muted);">Carregando...</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="searchModal" onclick="closeSearchModal()">
+  <div class="modal-content" style="max-height: 80vh; display: flex; flex-direction: column;" onclick="event.stopPropagation()">
+    <div class="modal-title">Meus Locais Salvos</div>
+    <input type="text" class="modal-input" id="searchAgendaInput" placeholder="🔍 Buscar por nome ou endereço..." style="margin-top:10px; height: 38px; font-size:12px;" onkeyup="renderSearchAgenda()"/>
+    <div class="loc-list" id="searchList" style="overflow-y: auto; flex: 1; padding-bottom: 5px; margin: 10px -10px 0; padding-left: 10px; padding-right: 10px;">
+      <!-- Itens via JS -->
+    </div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); closeSearchModal()">Fechar Agenda</button>
+    </div>
+  </div>
+</div>
+
+<!-- BUILDER MODAL (Roteiro em Ordem) -->
+<div class="modal-overlay" id="builderModal" onclick="closeBuilderModal()">
+  <div class="modal-content" style="max-height: 85vh; height: 85vh; width: 95%; max-width: 500px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
+    <div class="modal-title" style="flex-shrink:0;">Configurar Rota Manual</div>
+    
+    <!-- SEÇÃO 1: Endereços Selecionados (scroll) -->
+    <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 8px; min-height: 0;">
+      <div class="text-dark-auto" style="font-size:12px; font-weight:700; margin-bottom:5px; flex-shrink:0;">Ordem da Rota (Revise e Ajuste):</div>
+      <div id="routeSequence" style="background:var(--pr-bg); border-radius:8px; padding:10px; overflow-y:auto; flex: 1; display:flex; flex-direction:column; gap:5px; min-height:0;">
+        <!-- Pontos da rota selecionada entram aqui -->
+      </div>
+    </div>
+
+    <!-- SEÇÃO 2: Locais Disponíveis (scroll) -->
+    <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 8px; min-height: 0;">
+      <input type="text" class="modal-input" id="builderSearch" placeholder="🔍 Pesquisar para adicionar..." style="margin-bottom:6px; height: 34px; font-size:12px; flex-shrink: 0;" onkeyup="filterBuilderLocations()"/>
+      <div class="loc-list" id="builderAvailableList" style="overflow-y: auto; flex: 1; padding: 5px; margin: 0 -5px; min-height:0;">
+        <!-- Itens renderizados no JS -->
+      </div>
+    </div>
+    
+    <!-- SEÇÃO 3: Área de Despacho para Motorista (scroll) — Apenas Admin -->
+    <div id="adminDriverArea" style="display:none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; margin-bottom: 8px;">
+      <div class="text-dark-auto" style="font-size:12px; font-weight:700; margin-bottom:5px; flex-shrink:0;">📨 Enviar rota para:</div>
+      <input type="text" class="modal-input" id="builderDriverSearch" placeholder="🔍 Pesquisar motorista..." style="margin-bottom:6px; height: 34px; font-size:12px; flex-shrink: 0;" onkeyup="window.filterBuilderDrivers && window.filterBuilderDrivers()"/>
+      <div id="builderDriverList" style="background:var(--pr-bg); border-radius:8px; padding:10px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:5px; min-height:0;">
+        <!-- Drivers rendered by JS -->
+      </div>
+      <!-- Hidden select kept for compatibility -->
+      <select id="adminDriverSelect" style="display:none;"></select>
+    </div>
+
+    <div class="modal-actions" style="margin-top:12px; display:flex; align-items:center; gap: 8px; flex-shrink:0;">
+      <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); closeBuilderModal()" style="flex: 0 0 auto; padding: 10px 14px; font-size: 11px;">Voltar</button>
+      <button id="mainGenerateBtn" class="mbtn mbtn-save" style="flex:1; background:#1A6BAF; letter-spacing:.5px; font-size: 12px; padding: 10px 14px;" onclick="event.stopPropagation(); generateManualRoute()">🗺 Salvar Rota</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DE ESCOLHA DE ROTA (MOBILE) -->
+<div class="modal-overlay" id="routeChoiceModal" onclick="closeRouteChoiceModal()">
+  <div class="modal-content" style="max-width: 320px; padding: 25px;" onclick="event.stopPropagation()">
+    <div class="modal-title" style="text-align: center; margin-bottom: 20px;">Tipo de Rota</div>
+    <div style="display: flex; flex-direction: column; gap: 15px;">
+      <div class="acard c1" style="margin: 0;" onclick="closeRouteChoiceModal(); alert('Funcionalidade de Rota Inteligente Otimizada (Google AI) será disponibilizada na próxima atualização!')">
+        <div class="acard-icon">⟳</div>
+        <div class="acard-body">
+          <div class="acard-title">Automática</div>
+          <div class="acard-desc">Otimização via IA</div>
+        </div>
+      </div>
+      <div class="acard c1m" style="margin: 0;" onclick="closeRouteChoiceModal(); openBuilderModal()">
+        <div class="acard-icon">✏</div>
+        <div class="acard-body">
+          <div class="acard-title">Manual</div>
+          <div class="acard-desc">Você define a ordem</div>
+        </div>
+      </div>
+    </div>
+    <button class="mbtn mbtn-cancel" style="width: 100%; margin-top: 20px;" onclick="event.stopPropagation(); closeRouteChoiceModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- ═══ DRIVER ROUTES MODAL (Minhas Rotas) ═══ -->
+<div class="modal-overlay" id="driverRoutesModal" onclick="window.closeDriverRoutesModal()">
+  <div class="modal-content" style="max-height: 85vh; width: 95%; max-width: 550px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
+    <div class="modal-title" style="margin-bottom: 5px;">📋 Minhas Rotas</div>
+    <div class="modal-desc" style="margin-bottom: 15px;">Rotas do dia enviadas pelo seu administrador</div>
+    
+    <div id="driverMissionsList" style="flex: 1; overflow-y: auto; background: var(--pr-bg); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 120px;">
+      <div style="padding: 20px; text-align: center; font-size: 12px; color: var(--pr-text-muted);">
+        Carregando suas rotas...
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:15px; display:flex; justify-content:center;">
+      <button class="mbtn mbtn-cancel" style="width:100%;" onclick="event.stopPropagation(); window.closeDriverRoutesModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+<!-- MODAL DE SELEÇÃO DE ROLE (Para novos usuários) -->
+<div class="modal-overlay" id="rolePickerModal" onclick="event.stopPropagation()">
+  <div class="modal-content" style="max-width: 380px; padding: 25px;" onclick="event.stopPropagation()">
+    <div class="modal-title" style="text-align: center; margin-bottom: 5px;">Configure sua Conta</div>
+    <div style="text-align: center; font-size: 11px; color: var(--pr-text-muted); margin-bottom: 20px;">Você precisa escolher seu perfil para continuar.</div>
+    
+    <div style="display: flex; flex-direction: column; gap: 15px;">
+      
+      <!-- Option 1: Criar Própria Empresa (Admin) -->
+      <div id="rpOwnerBox" style="background: var(--pr-bg); border: 1px solid var(--pr-border); border-radius: 8px; padding: 15px;">
+        <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 5px; color: #1A6BAF;">🏢 Criar Minha Própria Frota</label>
+        <div style="font-size: 10px; color: var(--pr-text-muted); margin-bottom: 10px;">Torne-se o dono de uma frota nova sem códigos ou senhas.</div>
+        <button class="mbtn mbtn-save" style="width: 100%; background: #1A6BAF;" onclick="window.submitRoleSelection('owner')">Começar Agora</button>
+      </div>
+
+      <div style="display: flex; justify-content: center; align-items: center; gap: 10px; margin: 5px 0;">
+        <hr style="flex: 1; border: none; border-top: 1px solid var(--pr-border);">
+        <span style="font-size: 10px; color: var(--pr-text-muted); font-weight: 700;">OU ENTRAR COM CONVITE</span>
+        <hr style="flex: 1; border: none; border-top: 1px solid var(--pr-border);">
+      </div>
+
+      <!-- Option 2: Co-Admin -->
+      <div id="rpAdminBox" style="background: var(--pr-bg); border: 1px solid var(--pr-border); border-radius: 8px; padding: 15px;">
+        <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 5px; color: #d35400;">🤝 Sou Co-Administrador</label>
+        <div style="font-size: 10px; color: var(--pr-text-muted); margin-bottom: 10px;">Insira a chave gerada pelo Dono da empresa.</div>
+        <input type="text" id="rpAdminInput" class="modal-input" placeholder="Ex: ADM-XXXXXX" style="margin-bottom: 10px; text-transform: uppercase;" autocomplete="off"/>
+        <button class="mbtn mbtn-save" style="width: 100%; background: #d35400;" onclick="window.submitRoleSelection('admin')">Confirmar Co-Admin</button>
+      </div>
+
+      <!-- Option 3: Driver Option -->
+      <div id="rpDriverBox" style="background: var(--pr-bg); border: 1px solid var(--pr-border); border-radius: 8px; padding: 15px;">
+        <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 5px; color: #27ae60;">🚗 Sou Motorista</label>
+        <div style="font-size: 10px; color: var(--pr-text-muted); margin-bottom: 10px;">Cole o link de convite enviado pelo Administrador.</div>
+        <input type="text" id="rpDriverInput" class="modal-input" placeholder="Cole o link de convite aqui..." style="margin-bottom: 10px;"/>
+        <button class="mbtn mbtn-save" style="width: 100%; background: #27ae60;" onclick="window.submitRoleSelection('driver')">Confirmar Motorista</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══ QR CODE GENERATOR MODAL ═══ -->
+<div class="modal-overlay" id="qrCodeModal" onclick="window.closeQrModal()">
+  <div class="modal-content" style="max-height: 85vh; width: 95%; max-width: 440px; display: flex; flex-direction: column; padding: 0; overflow: hidden;" onclick="event.stopPropagation()">
+    
+    <!-- Header -->
+    <div style="display:flex; align-items:center; gap:12px; padding:16px 18px; border-bottom:1px solid var(--pr-border); background: linear-gradient(135deg, rgba(108,92,231,0.08), rgba(72,52,212,0.12));">
+      <div style="width:40px; height:40px; border-radius:10px; background:rgba(108,92,231,0.15); border:1px solid rgba(108,92,231,0.3); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6c5ce7" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3m0 4h4m-4 0v-4m0 0h4"/></svg>
+      </div>
+      <div>
+        <div class="text-dark-auto" style="font-size:14px; font-weight:700;">Gerador de QR Code</div>
+        <div style="font-size:11px; color:var(--pr-text-muted); margin-top:2px;">Converta localização em QR escaneável</div>
+      </div>
+    </div>
+
+    <!-- Source Toggle -->
+    <div style="display:flex; gap:8px; padding:14px 18px; border-bottom:1px solid var(--pr-border);">
+      <button class="qr-src-btn qr-wa-active" id="qr-btn-wa" onclick="event.stopPropagation(); window.qrSwitchSrc('wa')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.122 1.531 5.855L.057 23.882a.5.5 0 0 0 .61.61l6.114-1.457A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.9a9.877 9.877 0 0 1-5.031-1.378l-.36-.214-3.733.89.934-3.626-.235-.374A9.867 9.867 0 0 1 2.1 12C2.1 6.533 6.533 2.1 12 2.1c5.467 0 9.9 4.433 9.9 9.9 0 5.467-4.433 9.9-9.9 9.9z"/></svg>
+        WhatsApp
+      </button>
+      <button class="qr-src-btn" id="qr-btn-gm" onclick="event.stopPropagation(); window.qrSwitchSrc('gm')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C7.802 0 4 3.403 4 7.602 4 11.8 7.469 16.812 12 24c4.531-7.188 8-12.2 8-16.398C20 3.403 16.199 0 12 0zm0 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
+        Google Maps
+      </button>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:16px 18px; display:flex; flex-direction:column; gap:12px;">
+      <div>
+        <p style="font-size:11px; font-weight:600; color:var(--pr-text-muted); letter-spacing:0.05em; text-transform:uppercase; margin-bottom:4px;" id="qr-field-label">Link do WhatsApp</p>
+        <p style="font-size:11px; color:var(--pr-text-muted); opacity:0.6; margin-bottom:8px;" id="qr-field-hint">Cole o link de localização recebido no WhatsApp</p>
+        <div style="position:relative;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--pr-text-muted)" stroke-width="2" stroke-linecap="round" style="position:absolute; left:11px; top:50%; transform:translateY(-50%); opacity:0.5;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <input type="text" class="modal-input" id="qr-link-input" placeholder="https://maps.google.com/?q=-15.79,-47.88" oninput="window.qrOnInput()" style="padding-left:34px; font-family:'Inter',monospace; font-size:12px;" />
+        </div>
+      </div>
+
+      <div id="qr-detected" style="display:none; align-items:center; gap:6px; background:rgba(39,174,96,0.1); border:1px solid rgba(39,174,96,0.3); border-radius:7px; padding:6px 10px;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#27ae60" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <span id="qr-detected-txt" style="font-size:11px; font-family:'Inter',monospace; color:#27ae60;"></span>
+      </div>
+
+      <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.qrGenerate()" style="width:100%; background:#6c5ce7; display:flex; align-items:center; justify-content:center; gap:8px; padding:11px; font-size:13px; font-weight:700;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3m0 4h4m-4 0v-4m0 0h4"/></svg>
+        Gerar QR Code
+      </button>
+
+      <div id="qr-error-msg" style="font-size:12px; color:#e74c3c; text-align:center; display:none;"></div>
+    </div>
+
+    <!-- Result Section -->
+    <div id="qr-result-section" style="display:none; flex-direction:column; align-items:center; gap:12px; padding:16px 18px; border-top:1px solid var(--pr-border); background:var(--pr-bg);">
+      <div style="width:172px; height:172px; border-radius:12px; border:1px solid var(--pr-border); background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+        <div id="qr-output"></div>
+      </div>
+      <p style="font-size:10px; font-weight:600; color:var(--pr-text-muted); letter-spacing:0.06em; text-transform:uppercase;">URL gerada</p>
+      <p id="qr-result-url" style="font-size:10.5px; font-family:'Inter',monospace; color:var(--pr-blue-mid); word-break:break-all; text-align:center; max-width:320px;"></p>
+      <div style="display:flex; gap:8px; width:100%;">
+        <button class="mbtn mbtn-cancel" id="qr-copy-btn" onclick="event.stopPropagation(); window.qrCopyLink()" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; font-weight:600;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copiar link
+        </button>
+        <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.qrDownload()" style="flex:1; background:#6c5ce7; display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; font-weight:600;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Baixar PNG
+        </button>
+      </div>
+    </div>
+
+    <div style="padding:0 18px 16px;">
+      <button class="mbtn mbtn-cancel" style="width:100%;" onclick="event.stopPropagation(); window.closeQrModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ QR CODE SCANNER MODAL (Motorista) ═══ -->
+<div class="modal-overlay" id="qrScanModal" onclick="window.closeQrScanModal()">
+  <div class="modal-content" style="max-height:90vh; width:95%; max-width:420px; display:flex; flex-direction:column; padding:0; overflow:hidden;" onclick="event.stopPropagation()">
+
+    <!-- Header -->
+    <div style="display:flex; align-items:center; gap:12px; padding:16px 18px; border-bottom:1px solid var(--pr-border); background:linear-gradient(135deg,rgba(0,184,148,0.08),rgba(0,105,92,0.12));">
+      <div style="width:40px;height:40px;border-radius:10px;background:rgba(0,184,148,0.15);border:1px solid rgba(0,184,148,0.35);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00b894" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3m0 4h4m-4 0v-4m0 0h4"/></svg>
+      </div>
+      <div>
+        <div class="text-dark-auto" style="font-size:14px;font-weight:700;">Leitor de QR Code</div>
+        <div style="font-size:11px;color:var(--pr-text-muted);margin-top:2px;">Escaneie e navegue até a localização</div>
+      </div>
+    </div>
+
+    <!-- Camera Area -->
+    <div style="padding:16px 18px; display:flex; flex-direction:column; gap:12px;">
+      <p style="font-size:11px;font-weight:600;color:var(--pr-text-muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:2px;">Câmera</p>
+      <p style="font-size:11px;color:var(--pr-text-muted);opacity:0.65;margin-bottom:6px;" id="qr-scan-hint">Aponte para o QR Code de localização</p>
+
+      <div style="position:relative;width:100%;aspect-ratio:1/1;background:#0a0a0a;border-radius:12px;border:1px solid var(--pr-border);overflow:hidden;display:flex;align-items:center;justify-content:center;" id="qr-scan-box">
+        <!-- idle state -->
+        <div id="qr-scan-idle" style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+          <span style="font-size:12px;color:rgba(255,255,255,0.3);text-align:center;">Clique em "Ativar Câmera" para<br>escanear</span>
+        </div>
+        <!-- video element -->
+        <video id="qr-scan-video" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;" playsinline muted autoplay></video>
+        <!-- scan overlay corners -->
+        <div id="qr-scan-overlay" style="position:absolute;inset:0;display:none;pointer-events:none;">
+          <div style="position:absolute;top:16px;left:16px;width:30px;height:30px;border-top:3px solid #00b894;border-left:3px solid #00b894;border-radius:3px 0 0 0;"></div>
+          <div style="position:absolute;top:16px;right:16px;width:30px;height:30px;border-top:3px solid #00b894;border-right:3px solid #00b894;border-radius:0 3px 0 0;"></div>
+          <div style="position:absolute;bottom:16px;left:16px;width:30px;height:30px;border-bottom:3px solid #00b894;border-left:3px solid #00b894;border-radius:0 0 0 3px;"></div>
+          <div style="position:absolute;bottom:16px;right:16px;width:30px;height:30px;border-bottom:3px solid #00b894;border-right:3px solid #00b894;border-radius:0 0 3px 0;"></div>
+          <div id="qr-scan-line" style="position:absolute;left:16px;right:16px;height:2px;background:linear-gradient(90deg,transparent,#00b894,transparent);top:20%;animation:qrScanLine 2s ease-in-out infinite;"></div>
+        </div>
+        <!-- canvas (hidden, used for decoding) -->
+        <canvas id="qr-scan-canvas" style="display:none;"></canvas>
+      </div>
+
+      <!-- Detected result -->
+      <div id="qr-scan-result" style="display:none;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:flex-start;gap:8px;background:rgba(0,184,148,0.1);border:1px solid rgba(0,184,148,0.35);border-radius:8px;padding:10px 12px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00b894" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:1px;"><polyline points="20 6 9 17 4 12"/></svg>
+          <div>
+            <p style="font-size:11px;font-weight:700;color:#00b894;margin-bottom:2px;">QR Code detectado!</p>
+            <p id="qr-scan-url-txt" style="font-size:11px;font-family:'Inter',monospace;color:var(--pr-text-muted);word-break:break-all;"></p>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); window.qrScanReset()" style="flex:1;font-size:12px;font-weight:600;">Escanear Novo</button>
+          <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.qrScanNavigate()" style="flex:1;background:#00b894;display:flex;align-items:center;justify-content:center;gap:7px;font-size:12px;font-weight:600;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+            Abrir Maps
+          </button>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div id="qr-scan-error" style="display:none;font-size:12px;color:#e74c3c;text-align:center;padding:4px 0;"></div>
+    </div>
+
+    <!-- Actions -->
+    <div style="padding:0 18px 16px;display:flex;flex-direction:column;gap:8px;">
+      <button class="mbtn mbtn-save" id="qr-scan-start-btn" onclick="event.stopPropagation(); window.qrScanStart()" style="width:100%;background:#00b894;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:700;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+        Ativar Câmera
+      </button>
+      <button class="mbtn mbtn-cancel" style="width:100%;" onclick="event.stopPropagation(); window.closeQrScanModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes qrScanLine {
+  0%   { top: 20%; opacity: 1; }
+  45%  { top: 75%; opacity: 1; }
+  50%  { opacity: 0.3; }
+  55%  { top: 20%; opacity: 0.3; }
+  60%  { opacity: 1; }
+  100% { top: 75%; opacity: 1; }
+}
+</style>
+
+<!-- ═══ DRIVER STATS MODAL ═══ -->
+<div class="modal-overlay" id="driverStatsModal" onclick="window.closeDriverStatsModal()">
+  <div onclick="event.stopPropagation()" style="
+    width:100%; max-width:550px; height:85vh; max-height:650px;
+    background:var(--pr-surface); border-radius:16px; border:1px solid var(--pr-border);
+    display:flex; flex-direction:column; overflow:hidden;
+    box-shadow:0 24px 64px rgba(0,0,0,0.3);
+  ">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid var(--pr-border);background:var(--pr-surface);flex-shrink:0;">
+      <div id="statsDriverAvatar" style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--pr-blue-mid),var(--pr-blue-dark));color:#fff;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">M</div>
+      <div style="flex:1;">
+        <div id="statsDriverName" class="text-dark-auto" style="font-size:16px;font-weight:800;">Nome do Motorista</div>
+        <div style="font-size:11px;color:var(--pr-text-muted);margin-top:2px;">Desempenho e Histórico de Rotas</div>
+      </div>
+      <button class="fleet-panel-close" onclick="window.closeDriverStatsModal()">✕</button>
+    </div>
+
+    <!-- Scrollable Body -->
+    <div id="statsModalBody" style="flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:20px;">
+      
+      <!-- Stats Dashboard -->
+      <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:12px;">
+        <div style="background:var(--pr-bg); padding:16px; border-radius:12px; border:1px solid var(--pr-border);">
+          <div style="font-size:10px; font-weight:700; color:var(--pr-text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Rotas Concluídas</div>
+          <div id="statTotalRoutes" style="font-size:24px; font-weight:800; color:var(--pr-blue-dark);">0</div>
+        </div>
+        <div style="background:var(--pr-bg); padding:16px; border-radius:12px; border:1px solid var(--pr-border);">
+          <div style="font-size:10px; font-weight:700; color:var(--pr-text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Paradas Realizadas</div>
+          <div id="statTotalStops" style="font-size:24px; font-weight:800; color:var(--pr-blue-mid);">0</div>
+        </div>
+      </div>
+
+      <!-- History List -->
+      <div>
+        <p class="fp-section-label" style="margin-bottom:10px;">Últimas 20 Missões</p>
+        <div id="statsHistoryList" style="display:flex; flex-direction:column; gap:10px;">
+          <!-- Items inserted by JS -->
+          <div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">
+            Carregando histórico...
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:14px 20px; border-top:1px solid var(--pr-border); background:var(--pr-bg); display:flex; justify-content:flex-end;">
+      <button class="mbtn mbtn-cancel" onclick="window.closeDriverStatsModal()" style="font-size:13px; font-weight:700; padding:10px 24px;">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LIVE SPY MODAL ═══ -->
+<div class="modal-overlay" id="liveSpyModal" onclick="window.closeLiveSpy()">
+  <div onclick="event.stopPropagation()" style="
+    width:100%; max-width:700px; height:90vh; max-height:700px;
+    background:var(--pr-surface); border-radius:16px; border:1px solid var(--pr-border);
+    display:flex; flex-direction:column; overflow:hidden;
+    box-shadow:0 24px 64px rgba(0,0,0,0.4);
+  ">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--pr-border);background:linear-gradient(135deg,rgba(192,57,43,0.1),rgba(146,43,33,0.15));flex-shrink:0;">
+      <div style="width:38px;height:38px;border-radius:10px;background:rgba(192,57,43,0.15);border:1px solid rgba(192,57,43,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="9"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div class="text-dark-auto" style="font-size:14px;font-weight:700;">Espionar ao Vivo</div>
+        <div id="spy-status-txt" style="font-size:11px;color:var(--pr-text-muted);margin-top:1px;">Conectando...</div>
+      </div>
+      <!-- Live indicator -->
+      <div id="spy-live-dot" style="display:flex;align-items:center;gap:6px;background:rgba(192,57,43,0.15);border:1px solid rgba(192,57,43,0.4);border-radius:20px;padding:5px 10px;">
+        <div style="width:7px;height:7px;border-radius:50%;background:#e74c3c;animation:spyPulse 1.2s ease-in-out infinite;"></div>
+        <span style="font-size:11px;font-weight:700;color:#e74c3c;letter-spacing:0.06em;">AO VIVO</span>
+      </div>
+    </div>
+
+    <!-- Driver pills bar -->
+    <div id="spy-driver-bar" style="display:flex;gap:8px;padding:10px 16px;border-bottom:1px solid var(--pr-border);overflow-x:auto;flex-shrink:0;min-height:52px;align-items:center;">
+      <span style="font-size:11px;color:var(--pr-text-muted);">Aguardando motoristas...</span>
+    </div>
+
+    <!-- Map -->
+    <div id="spy-map" style="flex:1;background:#0a0a0a;"></div>
+
+    <!-- Footer -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--pr-border);flex-shrink:0;">
+      <span style="font-size:11px;color:var(--pr-text-muted);">Atualiza em tempo real via Firebase RTDB</span>
+      <button class="mbtn mbtn-cancel" onclick="event.stopPropagation();window.closeLiveSpy()" style="padding:7px 18px;font-size:12px;">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes spyPulse {
+  0%,100% { opacity:1; transform:scale(1); }
+  50% { opacity:0.4; transform:scale(0.7); }
+}
+</style>
+
+<script type="module" src="app.js?v=20"></script>
+</body>
+</html>

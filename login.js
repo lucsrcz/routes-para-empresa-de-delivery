@@ -55,7 +55,7 @@ onAuthStateChanged(auth, async (user) => {
         console.warn('Erro ao processar convite para user logado:', e);
       }
     }
-    window.location.href = "routes_app_v3_responsive (1).html";
+    window.location.href = "app.html";
   }
 });
 
