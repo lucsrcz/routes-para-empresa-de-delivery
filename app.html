@@ -966,78 +966,9 @@
   </div>
 </div>
 
-<style>
-@keyframes spyPulse {
-  0%,100% { opacity:1; transform:scale(1); }
-  50% { opacity:0.4; transform:scale(0.7); }
-}
-/* ── Motivational Card ── */
-#cardMotivacional .mc-body {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-#cardMotivacional .mc-emoji {
-  font-size: 22px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-#cardMotivacional .mc-titulo {
-  font-weight: 700;
-  font-size: 11px;
-  margin-bottom: 4px;
-  color: var(--pr-text, #1a2a4a);
-}
-#cardMotivacional .mc-texto {
-  font-size: 10px;
-  opacity: 0.75;
-  line-height: 1.55;
-  color: var(--pr-text, #1a2a4a);
-}
-#cardMotivacional .mc-dia {
-  font-size: 8px;
-  opacity: 0.4;
-  margin-top: 8px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--pr-text, #1a2a4a);
-}
-</style>
-
+<!-- Scripts -->
 <script type="module" src="app.js?v=21"></script>
-<script>
-(function() {
-  var MSGS = {
-    0: { emoji: "🌟", titulo: "Bom domingo, equipe!",      texto: "Descanso é parte da jornada. Recarregue as energias — amanhã a estrada nos espera!" },
-    1: { emoji: "🚀", titulo: "Segunda com tudo!",          texto: "A semana começa agora. Cada entrega é um sorriso no rosto de alguém. Vamos com força!" },
-    2: { emoji: "🔥", titulo: "Terça de foco!",             texto: "O ritmo tá aquecendo! Profissionais como vocês fazem a diferença a cada parada." },
-    3: { emoji: "💪", titulo: "Quarta de determinação!",    texto: "Metade da semana conquistada! O que nos move é o compromisso com cada cliente." },
-    4: { emoji: "🎯", titulo: "Quinta de precisão!",        texto: "Mais um dia para mostrar o que essa equipe vale. Foco na rota, atenção nos detalhes!" },
-    5: { emoji: "🏆", titulo: "Sexta vitoriosa!",           texto: "A linha de chegada da semana está perto! Cada entrega é prova do profissionalismo de vocês." },
-    6: { emoji: "☀️", titulo: "Sábado produtivo!",          texto: "Quem está aqui no sábado sabe o valor do esforço. A dedicação de vocês faz a diferença!" }
-  };
-  var DIAS = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
-  function renderMotivacional() {
-    var el = document.getElementById('cardMotivacional');
-    if (!el) return;
-    var d = new Date().getDay();
-    var m = MSGS[d];
-    el.innerHTML =
-      '<div class="mc-body">' +
-        '<span class="mc-emoji">' + m.emoji + '</span>' +
-        '<div>' +
-          '<div class="mc-titulo">' + m.titulo + '</div>' +
-          '<div class="mc-texto">' + m.texto + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="mc-dia">' + DIAS[d] + '</div>';
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', renderMotivacional);
-  } else {
-    renderMotivacional();
-  }
-})();
-</script>
+</body>
+</html>
 </body>
 </html>

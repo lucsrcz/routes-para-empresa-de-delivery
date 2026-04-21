@@ -214,6 +214,91 @@ body {
 .pd-badge strong{font-size:10px;font-weight:700;color:var(--pr-blue-dark);display:block;}
 .dm .pd-badge strong{color:var(--pr-blue-light);}
 
+/* MOTIVATIONAL CARD — PREMIUM STYLES */
+.motiv-card {
+  background: linear-gradient(135deg, rgba(26, 107, 175, 0.08), rgba(154, 200, 226, 0.15));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 14px;
+  border: 1px solid rgba(26, 107, 175, 0.1);
+  border-left: 4px solid var(--pr-blue-dark);
+  margin-bottom: 12px;
+  box-shadow: 0 4px 15px rgba(13, 72, 123, 0.08);
+  animation: motivSlideIn 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.dm .motiv-card {
+  background: linear-gradient(135deg, rgba(154, 200, 226, 0.05), rgba(255, 255, 255, 0.03));
+  border-color: rgba(255, 255, 255, 0.05);
+  border-left-color: var(--pr-blue-light);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.motiv-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  transform: translateX(-100%);
+  animation: shine 3s infinite;
+}
+
+@keyframes shine {
+  100% { transform: translateX(100%); }
+}
+
+.motiv-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.motiv-emoji {
+  font-size: 20px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+}
+
+.motiv-title {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--pr-blue-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.dm .motiv-title { color: var(--pr-blue-light); }
+
+.motiv-text {
+  font-size: 10.5px;
+  color: var(--pr-text);
+  line-height: 1.5;
+  font-style: italic;
+  font-weight: 500;
+  opacity: 0.9;
+  margin: 0;
+}
+
+.motiv-day {
+  display: block;
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--pr-text-muted);
+  margin-top: 8px;
+  opacity: 0.6;
+}
+
+@keyframes motivSlideIn {
+  from { opacity: 0; transform: translateX(15px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+
 /* BOTTOM NAV — mobile only */
 .bottom-nav{display:none;}
 

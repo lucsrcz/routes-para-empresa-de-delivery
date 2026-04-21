@@ -175,12 +175,46 @@ window.userRole = "driver"; // Padrão global
 })();
 
 // ══════════════════════════════════════════════════════════
-// ROLE-BASED UI — controla o que admin e driver vêem
+// MENSAGEM MOTIVACIONAL — SINCRONIZADA COM O DIA DA SEMANA
 // ══════════════════════════════════════════════════════════
+const MENSAGENS_SEMANA = {
+  0: { emoji: "🌟", titulo: "Bom domingo, equipe!", texto: "Descanso é parte da jornada. Recarregue as energias — amanhã a estrada nos espera com tudo!" },
+  1: { emoji: "🚀", titulo: "Segunda-feira: Pé no acelerador!", texto: "Nova semana, novas metas. Vamos fazer cada entrega valer a pena com foco e segurança." },
+  2: { emoji: "🎯", titulo: "Terça-feira: Foco no destino!", texto: "A constância é o que leva ao sucesso. Continue firme, seu trabalho move o mundo." },
+  3: { emoji: "⚡", titulo: "Quarta-feira: Meio da jornada!", texto: "Mantenha o ritmo! O que você faz com excelência hoje, colhe amanhã em reconhecimento." },
+  4: { emoji: "🛣️", titulo: "Quinta-feira: Quase lá!", texto: "Sua dedicação é o motor que nos faz chegar mais longe. Ótimo trabalho até aqui!" },
+  5: { emoji: "🏁", titulo: "Sexta-feira: Reta final!", texto: "Finalize a semana com a mesma energia que começou. Compromisso e agilidade sempre." },
+  6: { emoji: "🛡️", titulo: "Sábado: Segurança primeiro!", texto: "Mesmo no fim de semana, sua segurança é nossa prioridade. Dirija com cuidado e bom trabalho!" }
+};
+
+function aplicarMensagemDaSemana(idElemento) {
+  const container = document.getElementById(idElemento);
+  if (!container) return;
+  
+  const diasNomes = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+  const diaIndex = new Date().getDay();
+  const msg = MENSAGENS_SEMANA[diaIndex];
+  
+  if (!msg) return;
+
+  container.innerHTML = `
+    <div class="motiv-card">
+      <div class="motiv-header">
+        <span class="motiv-emoji">${msg.emoji}</span>
+        <span class="motiv-title">${msg.titulo}</span>
+      </div>
+      <p class="motiv-text">${msg.texto}</p>
+      <span class="motiv-day">${diasNomes[diaIndex]}</span>
+    </div>
+  `;
+}
 
 async function applyRoleUI() {
   console.log("Seu nível de acesso detectado:", window.userRole);
   
+  // Aplica a mensagem motivacional do dia
+  aplicarMensagemDaSemana('cardMotivacional');
+
   const adminPanel = document.getElementById('adminPanel');
   const driverPanel = document.getElementById('driverPanel');
   const adminHubBtn = document.getElementById('adminHubBtn');
@@ -298,6 +332,9 @@ async function applyRoleUI() {
     // Start listening for driver missions
     loadDriverMissions();
   }
+
+  // Atualizar card motivacional em ambos os casos
+  aplicarMensagemDaSemana('cardMotivacional');
 }
 
 // ══════════════════════════════════════════════════════════
