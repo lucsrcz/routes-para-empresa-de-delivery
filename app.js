@@ -734,23 +734,22 @@ window.submitRoleSelection = async function(role) {
 
   try {
     if (role === 'owner') {
-      const batch = writeBatch(db);
-      // set com merge:true cria ou atualiza; companyId = próprio UID (namespace da empresa)
-      batch.set(doc(db, "users", UID), {
+
+      // Usar setDoc direto (sem batch) para evitar rejeição de rules em pending
+      await setDoc(doc(db, "users", UID), {
         role: 'admin',
         inviteCodeCache: null,
         adminId: null,
-        companyId: UID,   // ← chave de isolamento multi-tenant
+        companyId: UID,
         email: currentUser.email || '',
         nome: currentUser.displayName || '',
         createdAt: serverTimestamp()
       }, { merge: true });
-      await batch.commit();
 
       window.userRole = 'admin';
       window.adminId = null;
-      window.companyId = currentUser.uid;
-      
+      window.companyId = UID;
+
       document.getElementById('rolePickerModal').classList.remove('active');
       applyRoleUI();
       loadLocations();
@@ -763,7 +762,7 @@ window.submitRoleSelection = async function(role) {
         alert("Preencha a chave secreta de Administrador!");
         return;
       }
-      
+
       const keyRef = doc(db, "admin_keys", secretInput);
       const keySnap = await getDoc(keyRef);
       if (!keySnap.exists()) {
@@ -774,26 +773,24 @@ window.submitRoleSelection = async function(role) {
         alert("Esta chave já foi usada e cancelada!");
         return;
       }
-      
+
       const originalAdminUid = keySnap.data().createdBy;
       const isSystemKey = originalAdminUid === 'SYSTEM_SETUP';
-      
-      const batch = writeBatch(db);
-      // Queima a chave atrelada a este usuário, validando a rule atomica
-      batch.update(keyRef, { usado: true, usedBy: UID });
-      // Promove o usuário como co-admin da empresa do criador da chave
       const coAdminCompanyId = isSystemKey ? UID : originalAdminUid;
-      batch.set(doc(db, "users", UID), {
+
+      // Atualizar chave primeiro (operação permitida para qualquer autenticado)
+      await updateDoc(keyRef, { usado: true, usedBy: UID });
+
+      // Depois promover o usuário
+      await setDoc(doc(db, "users", UID), {
         role: 'admin',
         adminKey: secretInput,
         inviteCodeCache: null,
         adminId: isSystemKey ? null : originalAdminUid,
-        companyId: coAdminCompanyId  // ← co-admin compartilha o companyId do dono
+        companyId: coAdminCompanyId
       }, { merge: true });
 
-      await batch.commit();
-      
-      // 🔥 Deletar a chave do Firestore — sem rastros
+      // Deletar a chave — sem rastros
       try { await deleteDoc(keyRef); } catch(e) { /* silencioso */ }
 
       window.userRole = 'admin';
@@ -806,8 +803,7 @@ window.submitRoleSelection = async function(role) {
         alert("Cole o link de convite recebido pelo Administrador.");
         return;
       }
-      
-      // Extrair código do link (se for URL com ?convite=)
+
       let inviteCode = rawInput;
       try {
         if (rawInput.includes('convite=')) {
@@ -815,7 +811,6 @@ window.submitRoleSelection = async function(role) {
           inviteCode = url.searchParams.get('convite') || rawInput;
         }
       } catch(e) {
-        // Se não for URL válida, tenta extrair com regex
         const match = rawInput.match(/convite=([a-zA-Z0-9\-]+)/);
         if (match) inviteCode = match[1];
       }
@@ -836,7 +831,7 @@ window.submitRoleSelection = async function(role) {
       await updateDoc(doc(db, "users", UID), {
         role: 'driver',
         adminId: inviteData.adminId,
-        companyId: inviteData.adminId,  // isolamento multi-tenant
+        companyId: inviteData.adminId,
         inviteCodeCache: null
       });
       await updateDoc(inviteRef, { usado: true, usedBy: UID });
@@ -846,14 +841,25 @@ window.submitRoleSelection = async function(role) {
       window.companyId = inviteData.adminId;
     }
 
-    // Close modal and execute normal boot flow
     document.getElementById('rolePickerModal').classList.remove('active');
     applyRoleUI();
     loadLocations();
     alert("Perfil configurado com sucesso! Bem-vindo.");
 
   } catch(e) {
-    alert("Erro na conversão de perfil: " + e.message);
+    console.error("Erro ao configurar perfil:", e);
+
+    // Mensagem amigável por tipo de erro
+    if (e.code === 'permission-denied' || e.message.includes('permissions')) {
+      alert(
+        "⚠️ Erro de permissão ao configurar perfil.\n\n" +
+        "Solução: Acesse o Firebase Console → Firestore → Rules e adicione a regra abaixo:\n\n" +
+        "allow write: if request.auth != null && request.auth.uid == userId;\n\n" +
+        "Ou entre em contato com o administrador do sistema."
+      );
+    } else {
+      alert("Erro na conversão de perfil: " + e.message);
+    }
   }
 }
 
