@@ -166,7 +166,7 @@
       <div class="cards-section">
         <!-- Minhas Rotas — abre o modal -->
         <div class="acard" style="background: linear-gradient(135deg, #1A6BAF, #0D487B); color: #fff;" onclick="window.openDriverRoutesModal()">
-          <div class="acard-icon" style="color:#fff;">📋</div>
+          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">📋</div>
           <div class="acard-body">
             <div class="acard-title" style="color:#fff;">Minhas Rotas</div>
             <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Veja as rotas do dia enviadas pelo admin</div>
@@ -176,7 +176,7 @@
 
         <!-- Abrir Google Maps -->
         <div class="acard c2" onclick="openGoogleMaps()">
-          <div class="acard-icon">🗺</div>
+          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">🗺</div>
           <div class="acard-body">
             <div class="acard-title">Abrir Google Maps</div>
             <div class="acard-desc">Navegue até o destino da rota ativa</div>
@@ -186,7 +186,7 @@
 
         <!-- Pesquisar Locais (Para o Motorista) -->
         <div class="acard c3" onclick="openSearchModal()">
-          <div class="acard-icon" style="color:var(--pr-blue-dark);">⊙</div>
+          <div class="acard-icon" style="color:var(--pr-blue-dark); background: var(--pr-blue-pale);">⊙</div>
           <div class="acard-body">
             <div class="acard-title">Buscar Endereços</div>
             <div class="acard-desc">Veja os locais adicionados pelo Admin</div>
@@ -194,7 +194,7 @@
           <span class="acard-arr">›</span>
         </div>
         <div class="acard" style="background: linear-gradient(135deg, #00b894, #00695c); color: #fff;" onclick="window.openQrScanModal()">
-          <div class="acard-icon" style="color:#fff;">📷</div>
+          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">📷</div>
           <div class="acard-body">
             <div class="acard-title" style="color:#fff;">Leitor de QR Code</div>
             <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Escaneie e navegue até a localização</div>
@@ -204,7 +204,7 @@
 
         <!-- Adicionar Local Pessoal -->
         <div class="acard c4" onclick="openLocModal()">
-          <div class="acard-icon" style="color:var(--pr-blue-dark);">＋</div>
+          <div class="acard-icon" style="color:var(--pr-blue-dark); background: var(--pr-blue-pale);">＋</div>
           <div class="acard-body">
             <div class="acard-title">Add Local Pessoal</div>
             <div class="acard-desc">Salve endereços só para você</div>
@@ -629,14 +629,14 @@
     <div class="modal-title" style="text-align: center; margin-bottom: 20px;">Tipo de Rota</div>
     <div style="display: flex; flex-direction: column; gap: 15px;">
       <div class="acard c1" style="margin: 0;" onclick="closeRouteChoiceModal(); alert('Funcionalidade de Rota Inteligente Otimizada (Google AI) será disponibilizada na próxima atualização!')">
-        <div class="acard-icon">⟳</div>
+        <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">⟳</div>
         <div class="acard-body">
           <div class="acard-title">Automática</div>
           <div class="acard-desc">Otimização via IA</div>
         </div>
       </div>
       <div class="acard c1m" style="margin: 0;" onclick="closeRouteChoiceModal(); openBuilderModal()">
-        <div class="acard-icon">✏</div>
+        <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">✏</div>
         <div class="acard-body">
           <div class="acard-title">Manual</div>
           <div class="acard-desc">Você define a ordem</div>

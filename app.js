@@ -578,6 +578,7 @@ onAuthStateChanged(auth, async (user) => {
           email: currentUser.email,
           nome: currentUser.displayName || '',
           role: "pending",
+          companyId: null,
           createdAt: serverTimestamp()
         });
         udata = { role: "pending" };
@@ -585,7 +586,21 @@ onAuthStateChanged(auth, async (user) => {
         udata = userSnap.data();
         window.userRole = udata.role || "pending";
         window.adminId = udata.adminId || null;
-        window.companyId = window.adminId || currentUser.uid;
+
+        // ── Auto-patch: corrige contas criadas ANTES do campo companyId existir ──
+        if ((udata.role === 'admin' || udata.role === 'driver') && !udata.companyId) {
+          const fixedCompanyId = udata.adminId || currentUser.uid;
+          try {
+            await setDoc(userRef, { companyId: fixedCompanyId }, { merge: true });
+            udata.companyId = fixedCompanyId;
+            console.log('[Auth] companyId migrado automaticamente:', fixedCompanyId);
+          } catch(e) {
+            console.warn('[Auth] Falha ao migrar companyId:', e.message);
+          }
+        }
+
+        // companyId: admin usa o próprio UID; motorista usa o UID do seu admin
+        window.companyId = udata.companyId || window.adminId || currentUser.uid;
         
         if (udata.inviteCodeCache) {
           document.getElementById('rpDriverInput').value = udata.inviteCodeCache;
@@ -616,9 +631,10 @@ onAuthStateChanged(auth, async (user) => {
             await updateDoc(userRef, {
               role: 'driver',
               adminId: inviteData.adminId,
+              companyId: inviteData.adminId,  // isolamento multi-tenant
               inviteCodeCache: null
             });
-            await updateDoc(inviteRef, { usado: true });
+            await updateDoc(inviteRef, { usado: true, usedBy: currentUser.uid });
             window.userRole = 'driver';
             window.adminId = inviteData.adminId;
             window.companyId = inviteData.adminId;
@@ -651,11 +667,13 @@ onAuthStateChanged(auth, async (user) => {
                 await updateDoc(userRef, {
                   role: 'driver',
                   adminId: inviteData.adminId,
+                  companyId: inviteData.adminId,  // isolamento multi-tenant
                   inviteCodeCache: null
                 });
-                await updateDoc(inviteRef, { usado: true });
+                await updateDoc(inviteRef, { usado: true, usedBy: currentUser.uid });
                 window.userRole = 'driver';
                 window.adminId = inviteData.adminId;
+                window.companyId = inviteData.adminId;
                 
                 alert(`✨ Conta vinculada automaticamente à frota via Convite!`);
                 hideLoader();
@@ -698,6 +716,7 @@ window.generateAdminInviteToken = async function() {
       await setDoc(doc(db, "admin_keys", code), {
         usado: false,
         createdBy: window.companyId || currentUser.uid,
+        companyId: window.companyId || currentUser.uid,  // isolamento multi-tenant
         createdAt: serverTimestamp()
       });
       document.getElementById('adminInviteResult').style.display = 'block';
@@ -716,11 +735,16 @@ window.submitRoleSelection = async function(role) {
   try {
     if (role === 'owner') {
       const batch = writeBatch(db);
-      batch.update(doc(db, "users", UID), {
+      // set com merge:true cria ou atualiza; companyId = próprio UID (namespace da empresa)
+      batch.set(doc(db, "users", UID), {
         role: 'admin',
         inviteCodeCache: null,
-        adminId: null
-      });
+        adminId: null,
+        companyId: UID,   // ← chave de isolamento multi-tenant
+        email: currentUser.email || '',
+        nome: currentUser.displayName || '',
+        createdAt: serverTimestamp()
+      }, { merge: true });
       await batch.commit();
 
       window.userRole = 'admin';
@@ -757,13 +781,15 @@ window.submitRoleSelection = async function(role) {
       const batch = writeBatch(db);
       // Queima a chave atrelada a este usuário, validando a rule atomica
       batch.update(keyRef, { usado: true, usedBy: UID });
-      // Promove o usuário
-      batch.update(doc(db, "users", UID), {
+      // Promove o usuário como co-admin da empresa do criador da chave
+      const coAdminCompanyId = isSystemKey ? UID : originalAdminUid;
+      batch.set(doc(db, "users", UID), {
         role: 'admin',
         adminKey: secretInput,
         inviteCodeCache: null,
-        adminId: isSystemKey ? null : originalAdminUid
-      });
+        adminId: isSystemKey ? null : originalAdminUid,
+        companyId: coAdminCompanyId  // ← co-admin compartilha o companyId do dono
+      }, { merge: true });
 
       await batch.commit();
       
@@ -772,7 +798,7 @@ window.submitRoleSelection = async function(role) {
 
       window.userRole = 'admin';
       window.adminId = isSystemKey ? null : originalAdminUid;
-      window.companyId = isSystemKey ? currentUser.uid : originalAdminUid;
+      window.companyId = coAdminCompanyId;
 
     } else if (role === 'driver') {
       let rawInput = document.getElementById('rpDriverInput').value.trim();
@@ -810,12 +836,14 @@ window.submitRoleSelection = async function(role) {
       await updateDoc(doc(db, "users", UID), {
         role: 'driver',
         adminId: inviteData.adminId,
+        companyId: inviteData.adminId,  // isolamento multi-tenant
         inviteCodeCache: null
       });
-      await updateDoc(inviteRef, { usado: true });
+      await updateDoc(inviteRef, { usado: true, usedBy: UID });
 
       window.userRole = 'driver';
       window.adminId = inviteData.adminId;
+      window.companyId = inviteData.adminId;
     }
 
     // Close modal and execute normal boot flow
@@ -2772,6 +2800,7 @@ window.sendDriverInvite = async function() {
     // Save to invites collection
     await setDoc(doc(db, "invites", codigo), {
       adminId: window.companyId,
+      companyId: window.companyId,  // isolamento multi-tenant
       usado: false,
       criadoEm: serverTimestamp()
     });
