@@ -170,6 +170,37 @@ service cloud.firestore {
       allow read, write: if isAuth() &&
         isAdmin() &&
         myCompany() == companyId;
+
+      // ── Metas Mensais ────────────────────────────────────────
+      match /monthly_goals/{goalId} {
+        allow read, write: if isAuth() && isAdmin() && myCompany() == companyId;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // REGRAS DE COMISSÃO (top-level, isoladas por companyId)
+    // ═══════════════════════════════════════════════════════════
+    match /commission_rules/{ruleId} {
+      // Admin e Drivers da mesma empresa podem ler
+      allow read: if isAuth() && (
+        resource.data.companyId == myCompany()
+      );
+      // Apenas Admin da empresa pode criar
+      allow create: if isAuth() && isAdmin() &&
+        request.resource.data.companyId == myCompany();
+      // Apenas Admin da empresa pode editar/excluir
+      allow update, delete: if isAuth() && isAdmin() &&
+        resource.data.companyId == myCompany();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // METAS MENSAIS (top-level, isoladas por companyId)
+    // ═══════════════════════════════════════════════════════════
+    match /monthly_goals/{goalId} {
+      allow read: if isAuth() && resource.data.companyId == myCompany();
+      allow create: if isAuth() && isAdmin() && request.resource.data.companyId == myCompany();
+      allow delete: if isAuth() && isAdmin() && resource.data.companyId == myCompany();
+      allow update: if isAuth() && resource.data.companyId == myCompany();
     }
   }
 }

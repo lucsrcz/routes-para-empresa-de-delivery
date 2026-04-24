@@ -153,6 +153,26 @@
           </div>
           <span class="acard-arr" style="color:#fff;">›</span>
         </div>
+
+        <!-- Regras de Comissão — Admin Only -->
+        <div class="acard" id="commissionRulesBtn" style="display:none; background: linear-gradient(135deg, #f39c12, #e67e22); color: #fff;" onclick="window.openCommissionRulesModal()">
+          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">💰</div>
+          <div class="acard-body">
+            <div class="acard-title" style="color:#fff;">Regras de Comissão</div>
+            <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Defina valores por peso de entrega</div>
+          </div>
+          <span class="acard-arr" style="color:#fff;">›</span>
+        </div>
+
+        <!-- Meta Mensal — Admin Only -->
+        <div class="acard" id="monthlyGoalsBtn" style="display:none; background: linear-gradient(135deg, #1A6BAF, #0D3B66); color: #fff;" onclick="window.openGoalsDashboard()">
+          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">🎯</div>
+          <div class="acard-body">
+            <div class="acard-title" style="color:#fff;">Analytics de Metas</div>
+            <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Desempenho, peso e faturamento</div>
+          </div>
+          <span class="acard-arr" style="color:#fff;">›</span>
+        </div>
       </div>
 
       <div class="sec-label">Recentes</div>
@@ -336,6 +356,7 @@
       </div>
     </div>
 
+
     <!-- ═══ MODAL DE AGENDAMENTO DE ROTA ═══ -->
     <div class="modal-overlay" id="scheduleRouteModal" onclick="window.fpCloseScheduleModal()">
       <div class="modal-content" style="max-height:85vh; width:95%; max-width:500px; display:flex; flex-direction:column; padding:20px;" onclick="event.stopPropagation()">
@@ -357,6 +378,18 @@
         <!-- Nota opcional -->
         <label class="fp-field-label">Observação (opcional)</label>
         <input type="text" id="schedNote" class="modal-input" placeholder="Ex: Entregar primeiro na loja central" style="margin-bottom:14px; height:38px; font-size:12px;" />
+        
+        <!-- Peso e Valor da Carga -->
+        <div style="display:flex; gap:10px; margin-bottom:14px;">
+          <div style="flex:1;">
+            <label class="fp-field-label">Peso da Carga (kg)</label>
+            <input type="number" id="schedWeight" class="modal-input" style="margin-bottom:0; height:40px; font-size:12px;" placeholder="0.00" step="0.1" />
+          </div>
+          <div style="flex:1;">
+            <label class="fp-field-label">Valor da Carga (R$)</label>
+            <input type="number" id="schedValue" class="modal-input" style="margin-bottom:0; height:40px; font-size:12px;" placeholder="0.00" step="0.01" />
+          </div>
+        </div>
 
         <!-- Seleção de pontos -->
         <div style="flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0; margin-bottom:8px;">
@@ -391,6 +424,18 @@
 
         <!-- Nota -->
         <div id="editSchedNote" style="padding:0 20px; font-size:10px; color:var(--pr-blue-mid); font-style:italic; margin-top:10px;"></div>
+        
+        <!-- Peso e Valor (Edição) -->
+        <div style="display:flex; gap:10px; margin:10px 20px 0;">
+          <div style="flex:1;">
+            <label class="fp-field-label">Peso (kg)</label>
+            <input type="number" id="editSchedWeight" class="modal-input" style="margin-bottom:0; height:36px; font-size:11px;" />
+          </div>
+          <div style="flex:1;">
+            <label class="fp-field-label">Valor (R$)</label>
+            <input type="number" id="editSchedValue" class="modal-input" style="margin-bottom:0; height:36px; font-size:11px;" />
+          </div>
+        </div>
 
         <!-- Lista de paradas -->
         <div style="padding:10px 20px 4px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--pr-text-muted);">Paradas da Rota</div>
@@ -608,6 +653,19 @@
     <!-- SEÇÃO 3: Área de Despacho para Motorista (scroll) — Apenas Admin -->
     <div id="adminDriverArea" style="display:none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; margin-bottom: 8px;">
       <div class="text-dark-auto" style="font-size:12px; font-weight:700; margin-bottom:5px; flex-shrink:0;">📨 Enviar rota para:</div>
+      
+      <!-- Campos de Peso e Valor -->
+      <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-shrink: 0;">
+        <div style="flex: 1;">
+          <label style="font-size: 11px; font-weight: 700; color: var(--pr-text-muted); display: block; margin-bottom: 4px;">Peso Total (kg)</label>
+          <input type="number" id="builderRouteWeight" class="modal-input" placeholder="0.00" step="0.1" style="height: 38px; font-size: 13px; margin-bottom: 0; border-radius: 10px;" />
+        </div>
+        <div style="flex: 1;">
+          <label style="font-size: 11px; font-weight: 700; color: var(--pr-text-muted); display: block; margin-bottom: 4px;">Valor Total (R$)</label>
+          <input type="number" id="builderRouteValue" class="modal-input" placeholder="0.00" step="0.01" style="height: 38px; font-size: 13px; margin-bottom: 0; border-radius: 10px;" />
+        </div>
+      </div>
+
       <input type="text" class="modal-input" id="builderDriverSearch" placeholder="🔍 Pesquisar motorista..." style="margin-bottom:6px; height: 34px; font-size:12px; flex-shrink: 0;" onkeyup="window.filterBuilderDrivers && window.filterBuilderDrivers()"/>
       <div id="builderDriverList" style="background:var(--pr-bg); border-radius:8px; padding:10px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:5px; min-height:0;">
         <!-- Drivers rendered by JS -->
@@ -629,16 +687,16 @@
     <div class="modal-title" style="text-align: center; margin-bottom: 20px;">Tipo de Rota</div>
     <div style="display: flex; flex-direction: column; gap: 15px;">
       <div class="acard c1" style="margin: 0;" onclick="closeRouteChoiceModal(); alert('Funcionalidade de Rota Inteligente Otimizada (Google AI) será disponibilizada na próxima atualização!')">
-        <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">⟳</div>
-        <div class="acard-body">
-          <div class="acard-title">Automática</div>
+        <div class="acard-icon"></div>
+        <div class="acard-content">
+          <div class="acard-title">Frota Ativa</div>
           <div class="acard-desc">Otimização via IA</div>
         </div>
       </div>
       <div class="acard c1m" style="margin: 0;" onclick="closeRouteChoiceModal(); openBuilderModal()">
-        <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">✏</div>
-        <div class="acard-body">
-          <div class="acard-title">Manual</div>
+        <div class="acard-icon"></div>
+        <div class="acard-content">
+          <div class="acard-title">Espionar</div>
           <div class="acard-desc">Você define a ordem</div>
         </div>
       </div>
@@ -865,6 +923,141 @@
 }
 </style>
 
+<!-- ═══ DELIVERY COMPLETION MODAL (Finalizar Entrega - Motorista) ═══ -->
+<div class="modal-overlay" id="deliveryCompletionModal" onclick="window.closeDeliveryModal()">
+  <div class="modal-content" style="max-height: 95vh; width: 95%; max-width: 480px; display: flex; flex-direction: column; padding: 25px; border-radius: 24px; background: var(--pr-surface);" onclick="event.stopPropagation()">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <div>
+        <div class="modal-title" style="margin-bottom: 4px; font-size: 20px; font-weight: 800; color: #1A6BAF;">Finalizar Entrega</div>
+        <div class="modal-desc" style="font-size: 13px; opacity: 0.7;">Complete os dados para registrar a comissão.</div>
+      </div>
+      <button class="mbtn-close" onclick="window.closeDeliveryModal()" style="background: var(--pr-bg); border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; color: var(--pr-text-muted);">✕</button>
+    </div>
+    
+    <div style="display:flex; flex-direction:column; gap:18px; flex:1; overflow-y:auto; padding-right: 5px;">
+      <!-- RESUMO DA CARGA (Enviado pelo Admin) -->
+      <div id="expectedCargoInfo" style="display:none; background:rgba(26,107,175,0.08); padding:15px; border-radius:18px; border:1px solid rgba(26,107,175,0.2); margin-bottom:5px;">
+        <div style="font-size:11px; color:var(--pr-text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px;">Carga Programada</div>
+        <div style="display:flex; gap:15px;">
+          <div style="flex:1;">
+            <div style="font-size:10px; color:var(--pr-text-muted);">Peso (kg)</div>
+            <div id="displayExpectedWeight" style="font-size:18px; font-weight:800; color:#1A6BAF;">0.00</div>
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:10px; color:var(--pr-text-muted);">Valor (R$)</div>
+            <div id="displayExpectedValue" style="font-size:18px; font-weight:800; color:#1A6BAF;">R$ 0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PESO DA MERCADORIA -->
+      <div class="fp-field">
+        <label class="fp-field-label" style="font-weight: 700; color: var(--pr-text); display: flex; align-items: center; gap: 6px;">
+          Peso da Mercadoria (kg)
+        </label>
+        <input type="number" id="deliveryWeight" class="modal-input" placeholder="0.00" step="0.1" style="height: 50px; font-size: 16px; font-weight: 600; border-radius: 14px; border: 2px solid var(--pr-border); background: var(--pr-bg);" />
+      </div>
+
+      <!-- VALOR DA MERCADORIA -->
+      <div class="fp-field">
+        <label class="fp-field-label" style="font-weight: 700; color: var(--pr-text); display: flex; align-items: center; gap: 6px;">
+          Valor da Mercadoria (R$)
+        </label>
+        <input type="number" id="deliveryValue" class="modal-input" placeholder="0.00" step="0.01" style="height: 50px; font-size: 16px; font-weight: 600; border-radius: 14px; border: 2px solid var(--pr-border); background: var(--pr-bg);" />
+      </div>
+
+      <!-- FOTO DO COMPROVANTE -->
+      <div class="fp-field">
+        <label class="fp-field-label" style="font-weight: 700; color: var(--pr-text); display: flex; align-items: center; gap: 6px;">
+          Comprovante da Entrega
+        </label>
+        <div id="cameraTrigger" style="position:relative; width:100%; min-height:160px; background:var(--pr-bg); border:2px dashed #1A6BAF; border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; transition: all 0.2s;" onclick="document.getElementById('deliveryPhotoInput').click()">
+          <input type="file" id="deliveryPhotoInput" accept="image/*" capture="environment" style="display:none;" onchange="window.handleDeliveryPhotoChange(this)" />
+          
+          <div id="photoPlaceholder" style="display:flex; flex-direction:column; align-items:center; gap:8px; color:var(--pr-blue-dark);">
+            <div style="width: 50px; height: 50px; border-radius: 50%; background: rgba(26, 107, 175, 0.1); display: flex; align-items: center; justify-content: center; font-size: 24px;"></div>
+            <span style="font-size:14px; font-weight:700;">Tirar Foto da Nota</span>
+            <span style="font-size:11px; font-weight:500; opacity: 0.6;">(Obrigatório para finalizar)</span>
+          </div>
+          
+          <img id="photoPreview" style="display:none; width:100%; height:100%; max-height: 250px; object-fit:cover; border-radius:16px;" />
+          
+          <div id="changePhotoBtn" style="display:none; position:absolute; bottom:10px; right:10px; background:rgba(0,0,0,0.6); color:#fff; padding:6px 12px; border-radius:20px; font-size:10px; font-weight:700; backdrop-filter: blur(4px);">
+            Trocar Foto
+          </div>
+        </div>
+      </div>
+
+      <!-- OBSERVAÇÕES -->
+      <div class="fp-field">
+        <label class="fp-field-label" style="font-weight: 700; color: var(--pr-text-muted);">Observações (Opcional)</label>
+        <textarea id="deliveryNotes" class="modal-input" style="height:90px; padding:14px; resize:none; border-radius:14px; border: 2px solid var(--pr-border); background: var(--pr-bg); font-family: inherit;" placeholder="Ex: Deixado com o recepcionista Carlos..."></textarea>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:20px; display:flex; gap:12px;">
+      <button class="mbtn mbtn-cancel" style="flex:1; height: 50px; border-radius: 14px; font-weight: 700;" onclick="window.closeDeliveryModal()">Cancelar</button>
+      <button class="mbtn mbtn-save" id="btnConfirmDelivery" style="flex:2; height: 50px; background:#27ae60; border-radius: 14px; font-weight: 800; font-size: 15px; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);" onclick="window.confirmDelivery()">Finalizar Entrega</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ COMMISSION RULES MODAL (Regras de Comissão - Admin) ═══ -->
+<div class="modal-overlay" id="commissionRulesModal" onclick="window.closeCommissionRulesModal()">
+  <div class="modal-content" style="max-height: 85vh; width: 95%; max-width: 550px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
+    <div class="modal-title" style="margin-bottom: 5px;">Regras de Comissão</div>
+    <div class="modal-desc" style="margin-bottom: 15px;">Defina valores por faixa de peso para os motoristas.</div>
+    
+    <div style="background:var(--pr-bg); border-radius:12px; padding:15px; margin-bottom:15px; border:1px solid var(--pr-border);">
+      <div style="font-size:12px; font-weight:700; margin-bottom:10px;">Adicionar Nova Regra</div>
+      
+      <div class="fp-field" style="margin-bottom: 8px;">
+        <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">TÍTULO DA REGRA</label>
+        <input type="text" id="ruleTitle" class="modal-input" style="height:36px; font-size:12px;" placeholder="Ex: Regra Padrão" />
+      </div>
+
+      <div style="display:flex; gap:8px; margin-bottom: 8px;">
+        <div style="flex:1;">
+          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">DIA INÍCIO CICLO</label>
+          <input type="number" id="ruleStartDay" class="modal-input" style="height:36px; font-size:11px;" placeholder="1" min="1" max="31" />
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">DIA FIM CICLO</label>
+          <input type="number" id="ruleEndDay" class="modal-input" style="height:36px; font-size:11px;" placeholder="31" min="1" max="31" />
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:8px; align-items:end;">
+        <div>
+          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">PESO MIN (kg)</label>
+          <input type="number" id="ruleMinWeight" class="modal-input" style="margin-bottom:0; height:36px; font-size:11px;" placeholder="0" />
+        </div>
+        <div>
+          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">PESO MAX (kg)</label>
+          <input type="number" id="ruleMaxWeight" class="modal-input" style="margin-bottom:0; height:36px; font-size:11px;" placeholder="999" />
+        </div>
+        <div>
+          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">VALOR (R$)</label>
+          <input type="number" id="ruleValue" class="modal-input" style="margin-bottom:0; height:36px; font-size:11px;" placeholder="0.00" />
+        </div>
+        <button class="mbtn mbtn-save" style="background:#27ae60; padding:0 12px; height:36px; font-size: 11px;" onclick="window.saveCommissionRule()">OK</button>
+      </div>
+    </div>
+
+    <div style="flex:1; overflow-y:auto;">
+      <div class="fp-section-label">Faixas Atuais</div>
+      <div id="commissionRulesList" style="display:flex; flex-direction:column; gap:8px;">
+        <!-- Regras injetadas pelo JS -->
+        <p style="text-align:center; padding:20px; font-size:11px; color:var(--pr-text-muted);">Carregando regras...</p>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:15px;">
+      <button class="mbtn mbtn-cancel" style="width:100%;" onclick="window.closeCommissionRulesModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ DRIVER STATS MODAL ═══ -->
 <div class="modal-overlay" id="driverStatsModal" onclick="window.closeDriverStatsModal()">
   <div onclick="event.stopPropagation()" style="
@@ -887,7 +1080,7 @@
     <div id="statsModalBody" style="flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:20px;">
       
       <!-- Stats Dashboard -->
-      <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:12px;">
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
         <div style="background:var(--pr-bg); padding:16px; border-radius:12px; border:1px solid var(--pr-border);">
           <div style="font-size:10px; font-weight:700; color:var(--pr-text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Rotas Concluídas</div>
           <div id="statTotalRoutes" style="font-size:24px; font-weight:800; color:var(--pr-blue-dark);">0</div>
@@ -895,6 +1088,10 @@
         <div style="background:var(--pr-bg); padding:16px; border-radius:12px; border:1px solid var(--pr-border);">
           <div style="font-size:10px; font-weight:700; color:var(--pr-text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Paradas Realizadas</div>
           <div id="statTotalStops" style="font-size:24px; font-weight:800; color:var(--pr-blue-mid);">0</div>
+        </div>
+        <div style="background:var(--pr-bg); padding:16px; border-radius:12px; border:1px solid var(--pr-border);">
+          <div style="font-size:10px; font-weight:700; color:var(--pr-text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Faturamento</div>
+          <div id="statTotalValue" style="font-size:20px; font-weight:800; color:#27ae60;">R$ 0,00</div>
         </div>
       </div>
 
@@ -954,6 +1151,229 @@
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--pr-border);flex-shrink:0;">
       <span style="font-size:11px;color:var(--pr-text-muted);">Atualiza em tempo real via Firebase RTDB</span>
       <button class="mbtn mbtn-cancel" onclick="event.stopPropagation();window.closeLiveSpy()" style="padding:7px 18px;font-size:12px;">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ GOALS DASHBOARD PANEL — Analytics de Metas ═══ -->
+<div id="goalsDashboardPanel" class="fleet-panel" style="display:none; background: var(--pr-bg);">
+  <div class="fleet-panel-header" style="background: linear-gradient(135deg, rgba(26,107,175,0.08), rgba(0,60,120,0.12));">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div style="width:42px; height:42px; border-radius:12px; background:rgba(26,107,175,0.1); border:1px solid rgba(26,107,175,0.2); display:flex; align-items:center; justify-content:center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1A6BAF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
+      </div>
+      <div>
+        <h3 class="fleet-panel-title">Analytics de Metas</h3>
+        <p class="fleet-panel-subtitle" id="gdCycleRange">Carregando ciclo...</p>
+      </div>
+    </div>
+    <button class="fleet-panel-close" onclick="window.closeGoalsDashboard()">✕</button>
+  </div>
+
+  <div class="fleet-panel-grid" style="padding:24px; overflow-y:auto; flex:1; display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:24px; align-content:start; background: radial-gradient(circle at top right, rgba(26,107,175,0.03), transparent 400px);">
+    
+    <!-- Round Charts: Sales (Weight & Value) -->
+    <div class="motiv-card" style="padding:24px; display:flex; flex-direction:column; align-items:center; grid-column: span 1;">
+      <div class="motiv-header" style="align-self:flex-start; width:100%; border-bottom: 1px solid var(--pr-border); padding-bottom: 12px; margin-bottom: 20px;">
+        <span class="motiv-emoji">🎯</span>
+        <h4 class="motiv-title">Progresso da Meta Ativa</h4>
+      </div>
+      
+      <div style="display:flex; flex-wrap: wrap; justify-content: center; gap:40px; margin-top:10px;">
+        <!-- Circle Weight -->
+        <div style="position:relative; width:130px; height:130px;">
+          <svg width="130" height="130" viewBox="0 0 120 120" style="transform: rotate(-90deg);">
+            <circle cx="60" cy="60" r="54" fill="none" stroke="var(--pr-border)" stroke-width="8" opacity="0.4"/>
+            <circle id="gdWeightCircleStroke" cx="60" cy="60" r="54" fill="none" stroke="#1A6BAF" stroke-width="10" 
+                    stroke-dasharray="339.29" stroke-dashoffset="339.29" stroke-linecap="round" style="transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1); filter: drop-shadow(0 0 6px rgba(26,107,175,0.3));"/>
+          </svg>
+          <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center;">
+            <div id="gdWeightPct" style="font-size:24px; font-weight:900; color:var(--pr-text); letter-spacing:-1px;">0%</div>
+            <div style="font-size:10px; font-weight:800; color:var(--pr-text-muted); text-transform:uppercase; letter-spacing:1px;">Peso</div>
+          </div>
+        </div>
+        <!-- Circle Value -->
+        <div style="position:relative; width:130px; height:130px;">
+          <svg width="130" height="130" viewBox="0 0 120 120" style="transform: rotate(-90deg);">
+            <circle cx="60" cy="60" r="54" fill="none" stroke="var(--pr-border)" stroke-width="8" opacity="0.4"/>
+            <circle id="gdValueCircleStroke" cx="60" cy="60" r="54" fill="none" stroke="#27ae60" stroke-width="10" 
+                    stroke-dasharray="339.29" stroke-dashoffset="339.29" stroke-linecap="round" style="transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1); filter: drop-shadow(0 0 6px rgba(39,174,96,0.3));"/>
+          </svg>
+          <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center;">
+            <div id="gdValuePct" style="font-size:24px; font-weight:900; color:var(--pr-text); letter-spacing:-1px;">0%</div>
+            <div style="font-size:10px; font-weight:800; color:var(--pr-text-muted); text-transform:uppercase; letter-spacing:1px;">Valor</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:28px; width:100%; display:flex; flex-direction:column; gap:10px; background: rgba(0,0,0,0.02); padding: 12px; border-radius: 12px; border: 1px solid var(--pr-border);">
+        <div id="gdWeightText" style="font-size:12px; font-weight:700; color:var(--pr-text); text-align:center;">0 / 0 kg</div>
+        <div id="gdValueText" style="font-size:12px; font-weight:700; color:var(--pr-blue-mid); text-align:center;">R$ 0 / 0</div>
+      </div>
+    </div>
+
+    <!-- Daily Performance -->
+    <div class="motiv-card" style="padding:24px; display:flex; flex-direction:column;">
+      <div class="motiv-header" style="border-bottom: 1px solid var(--pr-border); padding-bottom: 12px; margin-bottom: 20px;">
+        <span class="motiv-emoji">📅</span>
+        <h4 class="motiv-title">Desempenho Diário (Peso)</h4>
+      </div>
+      <div style="flex:1; display:flex; align-items:flex-end; gap:10px; height:160px; margin-top:10px;" id="gdDailyChart">
+        <!-- Bars via JS -->
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-top:15px; border-top: 1px solid var(--pr-border); padding-top: 10px;" id="gdDailyLabels">
+        <!-- Labels via JS -->
+      </div>
+    </div>
+
+    <!-- Weekly Performance -->
+    <div class="motiv-card" style="padding:24px; display:flex; flex-direction:column;">
+      <div class="motiv-header" style="border-bottom: 1px solid var(--pr-border); padding-bottom: 12px; margin-bottom: 20px;">
+        <span class="motiv-emoji">📈</span>
+        <h4 class="motiv-title">Desempenho Semanal</h4>
+      </div>
+      <div style="flex:1; display:flex; align-items:flex-end; gap:14px; height:160px; margin-top:10px;" id="gdWeeklyChart">
+        <!-- Bars via JS -->
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-top:15px; border-top: 1px solid var(--pr-border); padding-top: 10px;" id="gdWeeklyLabels">
+        <!-- Labels via JS -->
+      </div>
+    </div>
+
+    <!-- Delivery Status Comparison -->
+    <div class="motiv-card" style="padding:24px; display:flex; flex-direction:column;">
+      <div class="motiv-header" style="border-bottom: 1px solid var(--pr-border); padding-bottom: 12px; margin-bottom: 20px;">
+        <span class="motiv-emoji">📦</span>
+        <h4 class="motiv-title">Eficiência de Entregas</h4>
+      </div>
+      <div style="margin-top:10px; display:flex; flex-direction:column; gap:24px;">
+        <div>
+          <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:800; margin-bottom:8px;">
+            <span style="color:var(--pr-text);">100% Concluídas</span>
+            <span id="gdConcludedCount" style="color:#27ae60; background:rgba(39,174,96,0.1); padding:2px 8px; border-radius:6px;">0</span>
+          </div>
+          <div style="height:12px; background:var(--pr-bg); border-radius:10px; border:1px solid var(--pr-border); overflow:hidden;">
+            <div id="gdConcludedBar" style="width:0%; height:100%; background:linear-gradient(90deg, #27ae60, #2ecc71); border-radius:10px; transition:width 1.2s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:800; margin-bottom:8px;">
+            <span style="color:var(--pr-text);">Pendentes / Em Aberto</span>
+            <span id="gdPendingCount" style="color:#e67e22; background:rgba(230,126,34,0.1); padding:2px 8px; border-radius:6px;">0</span>
+          </div>
+          <div style="height:12px; background:var(--pr-bg); border-radius:10px; border:1px solid var(--pr-border); overflow:hidden;">
+            <div id="gdPendingBar" style="width:0%; height:100%; background:linear-gradient(90deg, #e67e22, #f39c12); border-radius:10px; transition:width 1.2s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: auto; padding-top: 20px; font-size: 10px; color: var(--pr-text-muted); text-align: center; opacity: 0.8;">
+        Comparação visual do ciclo atual de faturamento
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ MONTHLY GOALS MODAL ═══ -->
+<div class="modal-overlay" id="monthlyGoalsModal" onclick="window.closeMonthlyGoalsModal()">
+  <div onclick="event.stopPropagation()" style="
+    width:95%; max-width:480px; max-height:90vh;
+    background:var(--pr-surface); border-radius:18px; border:1px solid var(--pr-border);
+    display:flex; flex-direction:column; overflow:hidden;
+    box-shadow:0 28px 72px rgba(0,0,0,0.45);
+  ">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--pr-border);background:linear-gradient(135deg,rgba(26,107,175,0.12),rgba(0,60,120,0.18));flex-shrink:0;">
+      <div style="width:42px;height:42px;border-radius:12px;background:rgba(26,107,175,0.18);border:1px solid rgba(26,107,175,0.35);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A6BAF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"></path><path d="M12 20V4"></path><path d="M6 20v-6"></path></svg>
+      </div>
+      <div style="flex:1;">
+        <div style="font-size:15px;font-weight:800;color:var(--pr-text);">Meta Mensal da Frota</div>
+        <div style="font-size:11px;color:var(--pr-text-muted);margin-top:2px;">Configure o ciclo e as metas de peso e faturamento</div>
+      </div>
+      <button onclick="window.closeMonthlyGoalsModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--pr-text-muted);padding:4px;line-height:1;">✕</button>
+    </div>
+
+    <!-- Progress card -->
+    <div id="mgProgressCard" style="margin:16px 20px 0;background:linear-gradient(135deg,rgba(26,107,175,0.07),rgba(0,60,120,0.10));border:1px solid rgba(26,107,175,0.2);border-radius:14px;padding:14px;display:none;">
+      <div style="font-size:11px;font-weight:700;color:var(--pr-text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">Progresso do Ciclo Atual</div>
+      <!-- Weight bar -->
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:600;color:var(--pr-text);margin-bottom:4px;">
+          <span>Peso</span>
+          <span id="mgWeightLabel">0 / 0 kg</span>
+        </div>
+        <div style="background:var(--pr-bg);border-radius:999px;height:8px;overflow:hidden;">
+          <div id="mgWeightBar" style="height:100%;background:linear-gradient(90deg,#1A6BAF,#27ae60);border-radius:999px;width:0%;transition:width .5s ease;"></div>
+        </div>
+      </div>
+      <!-- Value bar -->
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:600;color:var(--pr-text);margin-bottom:4px;">
+          <span>Faturamento</span>
+          <span id="mgValueLabel">R$ 0 / R$ 0</span>
+        </div>
+        <div style="background:var(--pr-bg);border-radius:999px;height:8px;overflow:hidden;">
+          <div id="mgValueBar" style="height:100%;background:linear-gradient(90deg,#d35400,#f39c12);border-radius:999px;width:0%;transition:width .5s ease;"></div>
+        </div>
+      </div>
+      <div id="mgCycleLabel" style="font-size:10px;color:var(--pr-text-muted);margin-top:8px;text-align:center;"></div>
+    </div>
+
+    <!-- Form -->
+    <div style="padding:16px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px;">
+
+      <!-- Cycle dates -->
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--pr-text);margin-bottom:8px;">Ciclo Mensal</div>
+        <div style="display:flex;gap:10px;">
+          <div style="flex:1;">
+            <label style="font-size:10px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:4px;">Dia de Início</label>
+            <input type="number" id="mgCycleStart" class="modal-input" min="1" max="28" placeholder="Ex: 1" style="height:40px;font-size:14px;font-weight:700;text-align:center;margin-bottom:0;border-radius:10px;" />
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:10px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:4px;">Dia de Término</label>
+            <input type="number" id="mgCycleEnd" class="modal-input" min="1" max="31" placeholder="Ex: 30" style="height:40px;font-size:14px;font-weight:700;text-align:center;margin-bottom:0;border-radius:10px;" />
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--pr-text-muted);margin-top:6px;padding:8px;background:var(--pr-bg);border-radius:8px;">
+          <strong>Exemplo:</strong> Início dia 1 e Término dia 30 = ciclo mensal completo. Salário quinzenal? Use 1–15 e 16–30.
+        </div>
+      </div>
+
+      <!-- Weight goal -->
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--pr-text);margin-bottom:8px;">Meta de Peso (kg)</div>
+        <div style="display:flex;gap:10px;">
+          <div style="flex:1;">
+            <label style="font-size:10px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:4px;">Peso Mínimo (kg)</label>
+            <input type="number" id="mgWeightMin" class="modal-input" min="0" step="0.1" placeholder="Ex: 500" style="height:40px;font-size:14px;font-weight:700;text-align:center;margin-bottom:0;border-radius:10px;" />
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:10px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:4px;">Peso Máximo (kg)</label>
+            <input type="number" id="mgWeightMax" class="modal-input" min="0" step="0.1" placeholder="Ex: 2000" style="height:40px;font-size:14px;font-weight:700;text-align:center;margin-bottom:0;border-radius:10px;" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Revenue goal -->
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--pr-text);margin-bottom:8px;">Meta de Faturamento (R$)</div>
+        <div>
+          <label style="font-size:10px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:4px;">Valor Mensal Meta (R$)</label>
+          <input type="number" id="mgRevGoal" class="modal-input" min="0" step="0.01" placeholder="Ex: 15000.00" style="height:44px;font-size:16px;font-weight:700;text-align:center;margin-bottom:0;border-radius:10px;" />
+        </div>
+      </div>
+
+      <!-- Note -->
+      <div style="font-size:10px;color:var(--pr-text-muted);background:rgba(39,174,96,0.08);border:1px solid rgba(39,174,96,0.2);border-radius:8px;padding:10px;line-height:1.5;">
+        Ao salvar uma rota manual com <strong>peso</strong> e <strong>valor</strong> preenchidos, o sistema descontará automaticamente os valores da meta do ciclo ativo.
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:14px 20px;border-top:1px solid var(--pr-border);display:flex;gap:10px;flex-shrink:0;">
+      <button class="mbtn mbtn-cancel" onclick="window.closeMonthlyGoalsModal()" style="flex:0 0 auto;padding:10px 18px;font-size:12px;">Cancelar</button>
+      <button class="mbtn mbtn-save" id="mgSaveBtn" onclick="window.saveMonthlyGoal()" style="flex:1;font-size:13px;font-weight:700;">Salvar Meta</button>
     </div>
   </div>
 </div>

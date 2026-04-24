@@ -2,6 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebas
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 import { getFirestore, collection, addDoc, getDocs, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 import { getDatabase, ref as rtdbRef, set as rtdbSet, onValue, off } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-storage.js";
 
 const firebaseConfig = {
   projectId: "rotas-cabun-app",
@@ -18,11 +19,14 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const rtdb = getDatabase(app);
+const storage = getStorage(app);
 let currentUser = null;
 let allLocations = [];
 let builderSelectedPoints = [];
 let userCoords = null;
 let driverMissionsUnsubscribe = null;
+let deliveryPhotoBuffer = null;
+let currentMissionIdForCompletion = null;
 
 // Sanitização XSS — escapa HTML em conteúdo dinâmico
 function escapeHTML(str) {
@@ -157,6 +161,17 @@ window.decodePolyline = function(str, precision = 5) {
 
 
 window.userRole = "driver"; // Padrão global
+window.companyId = null;
+
+// Helper para validar permissões
+window.checkRole = function(role) {
+  if (window.userRole !== role) {
+    console.warn(`[Permissões] Acesso negado para ${role}. Atual: ${window.userRole}`);
+    alert("⚠️ Acesso Negado: Você não tem permissão para realizar esta ação.");
+    return false;
+  }
+  return true;
+};
 
 // ══════════════════════════════════════════════════════════
 // GLOBAL FAIL-SAFE LOADER
@@ -225,6 +240,7 @@ async function applyRoleUI() {
   const dailyRouteCard = document.getElementById('dailyRouteCard');
   const adminFleetCard = document.getElementById('adminFleetCard');
   const fleetStatusDesc = document.getElementById('fleetStatusDesc');
+  const commissionRulesBtn = document.getElementById('commissionRulesBtn');
   
   if (window.userRole === "admin") {
     // ═══ ADMIN VIEW ═══
@@ -234,6 +250,9 @@ async function applyRoleUI() {
     if (fleetManageBtn) fleetManageBtn.style.display = 'flex';
     const liveSpyBtn = document.getElementById('liveSpyBtn');
     if (liveSpyBtn) liveSpyBtn.style.display = 'flex';
+    if (commissionRulesBtn) commissionRulesBtn.style.display = 'flex';
+    const monthlyGoalsBtn = document.getElementById('monthlyGoalsBtn');
+    if (monthlyGoalsBtn) monthlyGoalsBtn.style.display = 'flex';
     if (bottomNavAdmin) bottomNavAdmin.style.display = '';
     if (bottomNavDriver) bottomNavDriver.style.display = 'none';
     if (adminArea) adminArea.style.display = 'flex';
@@ -360,7 +379,6 @@ function loadDriverMissions() {
     if (snapshot.empty) {
       list.innerHTML = `
         <div style="padding: 30px 20px; text-align: center;">
-          <div style="font-size: 40px; margin-bottom: 12px; opacity: 0.5;">📭</div>
           <div class="text-dark-auto" style="font-size: 13px; font-weight: 700; margin-bottom: 4px;">Nenhuma rota ainda</div>
           <div style="font-size: 11px; color: var(--pr-text-muted);">Quando seu admin criar uma rota para você, ela aparecerá aqui.</div>
         </div>
@@ -386,7 +404,7 @@ function loadDriverMissions() {
       const status = data.status || "Pendente";
       
       let stColor = status === "Pendente" ? "#e67e22" : (status === "Concluída" ? "#27ae60" : (status === "Em Rota" ? "#1A6BAF" : "#2196f3"));
-      let stIcon = status === "Pendente" ? "⏳" : (status === "Concluída" ? "✅" : (status === "Em Rota" ? "🚚" : "🚗"));
+      let stIcon = "";
       
       const stopsCount = data.stopsCount || 0;
       const distance = data.distance || "—";
@@ -407,7 +425,7 @@ function loadDriverMissions() {
       let startedTimeHTML = '';
       if (data.startedAt && data.startedAt.toDate) {
         const dObj = data.startedAt.toDate();
-        startedTimeHTML = `<span style="color:#2196f3; font-weight:600; background:rgba(33, 150, 243, 0.1); padding:2px 6px; border-radius:4px;">⏱ Saída: ${dObj.toLocaleDateString('pt-BR')} às ${dObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>`;
+        startedTimeHTML = `<span style="color:#2196f3; font-weight:600; background:rgba(33, 150, 243, 0.1); padding:2px 6px; border-radius:4px;">Saída: ${dObj.toLocaleDateString('pt-BR')} às ${dObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>`;
       }
       
       const card = document.createElement('div');
@@ -417,18 +435,20 @@ function loadDriverMissions() {
       
       card.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <div class="text-dark-auto" style="font-size: 13px; font-weight: 700;">${stIcon} Rota #${missionId.substring(0,6)}</div>
-          <span style="font-size: 10px; background: ${stColor}; color: #fff; padding: 2px 8px; border-radius: 10px; font-weight: bold;">${status}</span>
+          <div class="text-dark-auto" style="font-size: 13px; font-weight: 700;">Rota #${missionId.substring(0,6)}</div>
+          <span style="font-size: 10px; background: ${stColor}; color: #fff; padding: 2px 8px; border-radius: 10px; font-weight: bold;">${status.toUpperCase()}</span>
         </div>
-        ${data.assignedByName ? `<div style="font-size: 10px; color: var(--pr-blue-mid); font-weight: 600; margin-bottom: 6px;">📨 Enviada por: ${escapeHTML(data.assignedByName)}</div>` : ''}
+        ${data.assignedByName ? `<div style="font-size: 10px; color: var(--pr-blue-mid); font-weight: 600; margin-bottom: 6px;">Enviada por: ${escapeHTML(data.assignedByName)}</div>` : ''}
         <div style="font-size: 11px; color: var(--pr-text-muted); margin-bottom: 6px; line-height: 1.5;">${escapeHTML(stopNames) || 'Sem detalhes'}</div>
         <div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 10px; color: var(--pr-text-muted); margin-bottom: 10px;">
-          <span>📍 ${stopsCount} paradas</span>
+          <span>Paradas: ${stopsCount}</span>
           ${startedTimeHTML}
+          ${(data.expectedWeight !== undefined && data.expectedWeight !== null) ? `<span style="color:#27ae60; font-weight:700;" title="Carga Programada (Peso)">Peso Restante: ${data.expectedWeight.toFixed(2)}kg</span>` : ''}
+          ${(data.expectedValue !== undefined && data.expectedValue !== null) ? `<span style="color:#e67e22; font-weight:700;" title="Carga Programada (Valor)">Valor Restante: R$ ${data.expectedValue.toFixed(2)}</span>` : ''}
         </div>
         <div style="display: flex; gap: 6px;">
-          ${mapsUrl ? `<a href="${mapsUrl}" target="_blank" onclick="window.startMission('${missionId}')" style="flex: 1; display: block; background: var(--pr-blue-dark); color: #fff; text-decoration: none; text-align: center; padding: 8px; border-radius: 8px; font-size: 11px; font-weight: 600; transition: opacity 0.15s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">🗺 Maps</a>` : ''}
-          ${status !== "Concluída" ? `<button onclick="event.stopPropagation(); window.finishMission('${missionId}')" style="flex-shrink: 0; background: #27ae60; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; transition: opacity 0.15s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">✅ Concluir</button>` : ''}
+          ${mapsUrl ? `<a href="${mapsUrl}" target="_blank" onclick="window.startMission('${missionId}')" style="flex: 1; display: block; background: var(--pr-blue-dark); color: #fff; text-decoration: none; text-align: center; padding: 8px; border-radius: 8px; font-size: 11px; font-weight: 600; transition: opacity 0.15s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Abrir Maps</a>` : ''}
+          ${status !== "Concluída" ? `<button onclick="event.stopPropagation(); window.finishMission('${missionId}')" style="flex-shrink: 0; background: #27ae60; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; transition: opacity 0.15s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Concluir Entrega</button>` : ''}
         </div>
       `;
       
@@ -447,21 +467,26 @@ function loadDriverMissions() {
         const tm = d.time || '—';
         activeRouteContainer.innerHTML = `
           <div style="background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 10px; padding: 12px; border-left: 3px solid ${stc};">
-            <div class="text-dark-auto" style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">${sti} Rota #${mid.substring(0,6)}</div>
-            ${d.assignedByName ? `<div style="font-size: 9px; color: var(--pr-blue-mid); font-weight: 600; margin-bottom: 5px;">📨 ${escapeHTML(d.assignedByName)}</div>` : ''}
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <div class="text-dark-auto" style="font-size: 12px; font-weight: 700;">Rota #${mid.substring(0,6)}</div>
+              <span style="font-size: 9px; background: ${stc}; color: #fff; padding: 2px 6px; border-radius: 8px; font-weight: bold;">${pendingOrActiveRoute.status.toUpperCase()}</span>
+            </div>
+            ${d.assignedByName ? `<div style="font-size: 9px; color: var(--pr-blue-mid); font-weight: 600; margin-bottom: 5px;">Enviada por: ${escapeHTML(d.assignedByName)}</div>` : ''}
             <div style="font-size: 10px; color: var(--pr-text-muted); margin-bottom: 8px; line-height: 1.4;">${escapeHTML(stopNames)}</div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 9px; color: var(--pr-text-muted); margin-bottom: 10px;">
-              <span>📍 ${d.stopsCount || 0} paradas</span>
-              ${d.startedAt && d.startedAt.toDate ? `<span style="color:#2196f3; font-weight:600; background:rgba(33,150,243,0.1); padding:2px 6px; border-radius:4px;">⏱ Saída: ${d.startedAt.toDate().toLocaleDateString('pt-BR')} às ${d.startedAt.toDate().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>` : ''}
+              <span>Paradas: ${d.stopsCount || 0}</span>
+              ${d.startedAt && d.startedAt.toDate ? `<span style="color:#2196f3; font-weight:600; background:rgba(33,150,243,0.1); padding:2px 6px; border-radius:4px;">Saída: ${d.startedAt.toDate().toLocaleDateString('pt-BR')} às ${d.startedAt.toDate().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>` : ''}
+              ${(d.expectedWeight !== undefined && d.expectedWeight !== null) ? `<span style="color:#27ae60; font-weight:700;">Peso Rest: ${d.expectedWeight.toFixed(2)}kg</span>` : ''}
+              ${(d.expectedValue !== undefined && d.expectedValue !== null) ? `<span style="color:#e67e22; font-weight:700;">Valor Rest: R$ ${d.expectedValue.toFixed(2)}</span>` : ''}
             </div>
             <div style="display: flex; gap: 6px;">
-              ${d.mapsUrl ? `<a href="${d.mapsUrl}" target="_blank" onclick="window.startMission('${mid}')" style="flex:1; display:block; background:var(--pr-blue-dark); color:#fff; text-decoration:none; text-align:center; padding:7px; border-radius:7px; font-size:10px; font-weight:600;">🗺 Maps</a>` : ''}
-              <button onclick="event.stopPropagation(); window.finishMission('${mid}')" style="flex:1; background:#27ae60; color:#fff; border:none; padding:7px; border-radius:7px; font-size:10px; font-weight:600; cursor:pointer; font-family:inherit;">✅ Concluir</button>
+              ${d.mapsUrl ? `<a href="${d.mapsUrl}" target="_blank" onclick="window.startMission('${mid}')" style="flex:1; display:block; background:var(--pr-blue-dark); color:#fff; text-decoration:none; text-align:center; padding:7px; border-radius:7px; font-size:10px; font-weight:600;">Abrir Maps</a>` : ''}
+              ${pendingOrActiveRoute.status !== "Concluída" ? `<button onclick="event.stopPropagation(); window.finishMission('${mid}')" style="flex:1; background:#27ae60; color:#fff; border:none; padding:7px; border-radius:7px; font-size:10px; font-weight:600; cursor:pointer; font-family:inherit;">Concluir Entrega</button>` : ''}
             </div>
           </div>
         `;
       } else {
-        activeRouteContainer.innerHTML = `<div style="padding: 15px; text-align: center; font-size: 11px; color: var(--pr-text-muted); opacity: 0.6;">✅ Todas as rotas concluídas!</div>`;
+        activeRouteContainer.innerHTML = `<div style="padding: 15px; text-align: center; font-size: 11px; color: var(--pr-text-muted); opacity: 0.6;">Todas as rotas concluídas!</div>`;
       }
     }
     
@@ -518,11 +543,350 @@ window.startMission = async function(missionId) {
 };
 
 window.finishMission = async function(missionId) {
-  if (confirm("Deseja marcar esta rota como Concluída?")) {
+  currentMissionIdForCompletion = missionId;
+  
+  // Limpar dados anteriores
+  const expectedBox = document.getElementById('expectedCargoInfo');
+  const expWeight = document.getElementById('displayExpectedWeight');
+  const expValue = document.getElementById('displayExpectedValue');
+  
+  if (expectedBox) expectedBox.style.display = 'none';
+  if (expWeight) expWeight.textContent = '-- kg';
+  if (expValue) expValue.textContent = 'R$ --';
+
+  // Buscar dados da missão para mostrar o peso/valor esperado
+  try {
+    const missionRef = doc(db, "users", currentUser.uid, "history", missionId);
+    const snap = await getDoc(missionRef);
+    
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.expectedWeight || data.expectedValue) {
+        if (expectedBox) expectedBox.style.display = 'block';
+        if (expWeight) expWeight.textContent = `${data.expectedWeight || 0} kg`;
+        if (expValue) expValue.textContent = `R$ ${(data.expectedValue || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+        
+        // Auto-preencher os campos do motorista se desejar, ou deixar em branco para conferência
+        // document.getElementById('deliveryWeight').value = data.expectedWeight || '';
+        // document.getElementById('deliveryValue').value = data.expectedValue || '';
+      }
+    }
+  } catch (e) {
+    console.error("Erro ao carregar detalhes da missão:", e);
+  }
+
+  document.getElementById('deliveryCompletionModal').classList.add('active');
+};
+
+window.handleDeliveryPhotoChange = function(input) {
+  const file = input.files[0];
+  const preview = document.getElementById('photoPreview');
+  const placeholder = document.getElementById('photoPlaceholder');
+  const changeBtn = document.getElementById('changePhotoBtn');
+  
+  if (file) {
+    deliveryPhotoBuffer = file;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      if (preview) {
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+      }
+      if (placeholder) placeholder.style.display = 'none';
+      if (changeBtn) changeBtn.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  }
+};
+
+window.closeDeliveryModal = function() {
+  const modal = document.getElementById('deliveryCompletionModal');
+  if (modal) modal.classList.remove('active');
+  
+  // Reset fields
+  const weightInput = document.getElementById('deliveryWeight');
+  const valueInput = document.getElementById('deliveryValue');
+  const notesInput = document.getElementById('deliveryNotes');
+  const photoInput = document.getElementById('deliveryPhotoInput');
+  const preview = document.getElementById('photoPreview');
+  const placeholder = document.getElementById('photoPlaceholder');
+  const changeBtn = document.getElementById('changePhotoBtn');
+
+  if (weightInput) weightInput.value = '';
+  if (valueInput) valueInput.value = '';
+  if (notesInput) notesInput.value = '';
+  if (photoInput) photoInput.value = '';
+  if (preview) {
+    preview.src = '';
+    preview.style.display = 'none';
+  }
+  if (placeholder) placeholder.style.display = 'flex';
+  if (changeBtn) changeBtn.style.display = 'none';
+  
+  deliveryPhotoBuffer = null;
+  currentMissionIdForCompletion = null;
+};
+
+window.confirmDelivery = async function() {
+  if (!currentMissionIdForCompletion) return;
+  if (!currentUser) {
+    alert("Erro: Usuário não autenticado.");
+    return;
+  }
+  
+  const weightVal = document.getElementById('deliveryWeight').value;
+  const cargoVal = document.getElementById('deliveryValue').value;
+  const notes = document.getElementById('deliveryNotes').value;
+  const btn = document.getElementById('btnConfirmDelivery');
+  
+  const weight = parseFloat(weightVal);
+  const cargoValue = parseFloat(cargoVal) || 0;
+  
+  if (isNaN(weight) || weight <= 0) {
+    alert("⚠️ Por favor, informe o peso da mercadoria (maior que zero).");
+    document.getElementById('deliveryWeight').focus();
+    return;
+  }
+
+  if (!deliveryPhotoBuffer) {
+    alert("A foto do comprovante é obrigatória para finalizar a entrega.");
+    document.getElementById('deliveryPhotoInput').click();
+    return;
+  }
+
+  btn.disabled = true;
+  const originalText = btn.innerHTML;
+  btn.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+      <span class="status-pulse blue" style="margin-right:0;"></span>
+      Finalizando...
+    </div>
+  `;
+
+  try {
+    let photoUrl = null;
+    const storagePath = `deliveries/${window.companyId || currentUser.uid}/${currentMissionIdForCompletion}_${Date.now()}.jpg`;
+    const sRef = storageRef(storage, storagePath);
+    
+    // Upload photo
+    const snapshot = await uploadBytes(sRef, deliveryPhotoBuffer);
+    photoUrl = await getDownloadURL(snapshot.ref);
+
+    // Calcular comissão
+    const commission = await calculateCommissionValue(weight);
+
+    // Deduzir da meta mensal (pois o motorista enviou)
+    if (typeof window.deductFromMonthlyGoal === 'function') {
+      await window.deductFromMonthlyGoal(weight, cargoValue);
+    }
+
+    // Calcular remaining na Carga Programada
+    const routeDocRef = doc(db, "users", currentUser.uid, "history", currentMissionIdForCompletion);
+    const routeSnap = await getDoc(routeDocRef);
+    let isFullyCompleted = true;
+    let newExpectedWeight = 0;
+    let newExpectedValue = 0;
+
+    if (routeSnap.exists()) {
+      const data = routeSnap.data();
+      const currentExpectedWeight = data.expectedWeight || 0;
+      const currentExpectedValue = data.expectedValue || 0;
+      
+      newExpectedWeight = currentExpectedWeight - weight;
+      newExpectedValue = currentExpectedValue - cargoValue;
+      
+      if (newExpectedWeight < 0) newExpectedWeight = 0;
+      if (newExpectedValue < 0) newExpectedValue = 0;
+      
+      if (newExpectedWeight > 0 || newExpectedValue > 0) {
+        isFullyCompleted = false;
+      }
+    }
+
+    const finalStatus = isFullyCompleted ? "Concluída" : "Pendente";
+
+    // Buscar valores acumulados atuais
+    const currentDeliveredWeight = (routeSnap.exists() ? routeSnap.data().deliveredWeight : 0) || 0;
+    const currentDeliveredValue = (routeSnap.exists() ? routeSnap.data().deliveredValue : 0) || 0;
+    const currentTotalCommission = (routeSnap.exists() ? routeSnap.data().totalCommission : 0) || 0;
+
+    await window.updateRouteStatus(currentMissionIdForCompletion, finalStatus, {
+      completedAt: serverTimestamp(),
+      lastWeight: weight,
+      lastValue: cargoValue,
+      deliveredWeight: currentDeliveredWeight + weight,
+      deliveredValue: currentDeliveredValue + cargoValue,
+      deliveryNotes: notes,
+      proofPhotoUrl: photoUrl,
+      totalCommission: currentTotalCommission + commission,
+      finishedBy: currentUser.uid,
+      expectedWeight: newExpectedWeight, 
+      expectedValue: newExpectedValue
+    });
+
+    alert("Entrega registrada com sucesso!");
+    window.closeDeliveryModal();
+    
+    // Feedback visual imediato se estiver na aba de histórico
+    if (window.loadDriverMissions) window.loadDriverMissions();
+    
+  } catch (e) {
+    console.error("[Delivery] Erro ao finalizar:", e);
+    alert("❌ Erro ao salvar entrega: " + (e.message || "Verifique sua conexão."));
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
+};
+
+async function calculateCommissionValue(weight) {
+  try {
+    const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
+    const snapshot = await getDocs(q);
+    let fee = 0;
+    
+    const today = new Date().getDate();
+    
+    snapshot.forEach(docSnap => {
+      const rule = docSnap.data();
+      const start = rule.cycleStart || 1;
+      const end = rule.cycleEnd || 31;
+      
+      let inCycle = false;
+      if (start <= end) {
+        inCycle = today >= start && today <= end;
+      } else {
+        inCycle = today >= start || today <= end;
+      }
+      
+      if (inCycle) {
+        if (weight >= rule.min && weight <= rule.max) {
+          fee = rule.value;
+        }
+      }
+    });
+    
+    return fee;
+  } catch (e) {
+    console.warn("Erro ao calcular comissão:", e);
+    return 0;
+  }
+}
+
+// --- ADMIN: Regras de Comissão ---
+
+window.openCommissionRulesModal = function() {
+  if (!checkRole('admin')) return;
+  document.getElementById('commissionRulesModal').classList.add('active');
+  window.loadCommissionRules();
+};
+
+window.closeCommissionRulesModal = function() {
+  document.getElementById('commissionRulesModal').classList.remove('active');
+};
+
+window.saveCommissionRule = async function() {
+  if (!checkRole('admin')) {
+    alert("Acesso negado. Somente administradores podem salvar regras.");
+    return;
+  }
+  
+  const titleInput = document.getElementById('ruleTitle');
+  const startInput = document.getElementById('ruleStartDay');
+  const endInput = document.getElementById('ruleEndDay');
+  const minInput = document.getElementById('ruleMinWeight');
+  const maxInput = document.getElementById('ruleMaxWeight');
+  const valInput = document.getElementById('ruleValue');
+
+  if (!titleInput || !startInput || !endInput || !minInput || !maxInput || !valInput) {
+    console.error("IDs de input não encontrados no DOM.");
+    return;
+  }
+
+  const title = titleInput.value.trim() || 'Regra Padrao';
+  const cycleStart = parseInt(startInput.value) || 1;
+  const cycleEnd = parseInt(endInput.value) || 31;
+  const min = parseFloat(minInput.value);
+  const max = parseFloat(maxInput.value);
+  const val = parseFloat(valInput.value);
+  
+  if (isNaN(min) || isNaN(max) || isNaN(val)) {
+    alert("Preencha todos os campos da faixa (Min, Max e Valor).");
+    return;
+  }
+
+  const cId = window.companyId || (currentUser ? currentUser.uid : null);
+  if (!cId) {
+    alert("Empresa nao identificada. Tente recarregar a pagina.");
+    return;
+  }
+
+  try {
+    await addDoc(collection(db, "commission_rules"), {
+      companyId: cId,
+      title: title,
+      cycleStart: cycleStart,
+      cycleEnd: cycleEnd,
+      min: min,
+      max: max,
+      value: val,
+      createdAt: serverTimestamp()
+    });
+    
+    minInput.value = '';
+    maxInput.value = '';
+    valInput.value = '';
+    
+    if (window.loadCommissionRules) window.loadCommissionRules();
+  } catch (e) {
+    console.error("Erro ao salvar regra:", e);
+    alert("Erro ao salvar regra: " + e.message);
+  }
+};
+
+window.loadCommissionRules = async function() {
+  const list = document.getElementById('commissionRulesList');
+  if (!list) return;
+  
+  try {
+    const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
+    const snapshot = await getDocs(q);
+    
+    list.innerHTML = '';
+    if (snapshot.empty) {
+      list.innerHTML = '<p style="text-align:center; padding:20px; font-size:11px; color:var(--pr-text-muted);">Nenhuma regra definida ainda.</p>';
+      return;
+    }
+
+    let rules = [];
+    snapshot.forEach(docSnap => rules.push({ id: docSnap.id, ...docSnap.data() }));
+    rules.sort((a, b) => (a.min || 0) - (b.min || 0));
+
+    rules.forEach(r => {
+      const item = document.createElement('div');
+      item.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:var(--pr-surface); padding:10px 15px; border-radius:10px; border:1px solid var(--pr-border);";
+      item.innerHTML = `
+        <div style="font-size:12px;">
+          <div style="font-weight:800; color:var(--pr-text); margin-bottom: 2px;">${r.title || 'Regra'} <span style="font-size:9px; color:var(--pr-text-muted); font-weight:600;">(Ciclo: Dia ${r.cycleStart || 1} ao ${r.cycleEnd || 31})</span></div>
+          <span style="font-weight:700; color:var(--pr-blue-mid);">${r.min}kg - ${r.max}kg</span>
+          <span style="margin-left:10px; color:#27ae60; font-weight:800;">R$ ${Number(r.value).toFixed(2)}</span>
+        </div>
+        <button onclick="window.deleteCommissionRule('${r.id}')" style="background:none; border:none; color:#e74c3c; cursor:pointer; font-size:11px; font-weight:700; text-transform:uppercase;">Excluir</button>
+      `;
+      list.appendChild(item);
+    });
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+window.deleteCommissionRule = async function(ruleId) {
+  if (confirm("Deseja excluir esta regra?")) {
     try {
-      await window.updateRouteStatus(missionId, "Concluída", { completedAt: serverTimestamp() });
-    } catch(e) {
-      alert("Erro ao concluir: " + e.message);
+      await deleteDoc(doc(db, "commission_rules", ruleId));
+      window.loadCommissionRules();
+    } catch (e) {
+      alert("Erro ao excluir: " + e.message);
     }
   }
 };
@@ -535,18 +899,7 @@ window.closeDriverRoutesModal = function() {
   document.getElementById('driverRoutesModal').classList.remove('active');
 };
 
-window.renameDriver = async function(uid, oldName) {
-  const newName = prompt("Digite o nome desse motorista:", oldName || "");
-  if (newName !== null && newName.trim() !== "") {
-    try {
-      await updateDoc(doc(db, "users", uid), { nome: newName.trim() });
-      loadAdminHubData();
-      applyRoleUI();
-    } catch(e) {
-      alert("Erro: " + e.message);
-    }
-  }
-}
+// Removido duplicata do renameDriver
 
 // ══════════════════════════════════════════════════════════
 // AUTENTICAÇÃO E CONFIGURAÇÃO DE ROLE
@@ -1281,10 +1634,10 @@ window.updateGenerateBtn = function() {
   if (uid) {
     const selectedItem = document.querySelector('.bdr-item.selected');
     const driverName = selectedItem ? selectedItem.dataset.name : 'Motorista';
-    genBtn.textContent = `📨 Enviar para ${driverName}`;
+    genBtn.textContent = `Enviar para ${driverName}`;
     genBtn.style.background = '#27ae60';
   } else {
-    genBtn.textContent = '🗺 Salvar Rota';
+    genBtn.textContent = 'Salvar Rota';
     genBtn.style.background = '#1A6BAF';
   }
 };
@@ -1432,7 +1785,7 @@ window.generateManualRoute = async function() {
     }
     
     // 1) Montar o link do Google Maps (SEM abrir)
-    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.name || loc.originalInput);
+    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
     const lastP = builderSelectedPoints[builderSelectedPoints.length - 1];
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
     if (builderSelectedPoints.length > 1) {
@@ -1450,12 +1803,17 @@ window.generateManualRoute = async function() {
     }
 
     // 3) Preparar dados da rota
+    const weightInput = document.getElementById('builderRouteWeight');
+    const valueInput = document.getElementById('builderRouteValue');
+
     const routeData = {
       points: builderSelectedPoints.map(p => ({name: p.name, input: p.originalInput, lat: p.lat||null, lng: p.lng||null})),
       distance: "—", time: "—", stopsCount: builderSelectedPoints.length, 
       polyline: "",
       mapsUrl: mapsUrl,
       status: "Pendente",
+      expectedWeight: weightInput ? (parseFloat(weightInput.value) || 0) : 0,
+      expectedValue: valueInput ? (parseFloat(valueInput.value) || 0) : 0,
       createdAt: serverTimestamp()
     };
 
@@ -1479,7 +1837,10 @@ window.generateManualRoute = async function() {
       alert(`✅ Rota enviada com sucesso para ${targetDriverName}!\n\n📍 ${builderSelectedPoints.length} parada(s)\n🔗 O motorista já pode ver a missão no painel.`);
     }
 
-    // 4) Tentar calcular detalhes e trajeto em BACKGROUND via OSRM
+    // 4) [REMOVIDO] Deduzir peso e valor da meta mensal (agora é deduzido apenas na finalização pelo motorista)
+    // Os valores expectedWeight e expectedValue vão para a "Carga Programada" apenas.
+
+    // 5) Tentar calcular detalhes e trajeto em BACKGROUND via OSRM
     window.calculateOSRMBackground(newRouteRef, builderSelectedPoints);
 
     // Reset do botão em background
@@ -1657,10 +2018,11 @@ window.startDriverDailyRoute = function() {
   let mapsUrl = `https://www.google.com/maps/dir/?api=1`;
   
   // Last point is destination
+  const getFormat = (p) => (p.lat && p.lng) ? `${p.lat},${p.lng}` : encodeURIComponent(p.input || p.name);
   const lastP = window.tempDriverRouteSequence[window.tempDriverRouteSequence.length - 1];
-  const wpUrls = window.tempDriverRouteSequence.slice(0, -1).map(p => encodeURIComponent(p.googleUrl || p.name));
+  const wpUrls = window.tempDriverRouteSequence.slice(0, -1).map(getFormat);
   
-  mapsUrl += `&destination=${encodeURIComponent(lastP.googleUrl || lastP.name)}&travelmode=driving`;
+  mapsUrl += `&destination=${getFormat(lastP)}&travelmode=driving`;
   if (wpUrls.length > 0) {
     mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
   }
@@ -1686,6 +2048,10 @@ window.openFleetPanel = function() {
   const card = document.getElementById('dailyRouteCard');
   const badge = document.getElementById('pdRouteDetails');
   const pill = document.getElementById('mapStatsPill');
+  
+  // Garantir que outros paineis exclusivos fechem
+  if (window.closeGoalsDashboard) window.closeGoalsDashboard();
+
   if (card) card.style.display = 'none';
   if (badge) badge.style.display = 'none';
   if (pill) pill.style.display = 'none';
@@ -2180,7 +2546,7 @@ window.fpSaveScheduledRoute = async function() {
     const scheduledDate = new Date(year, month - 1, day, hour, minute);
 
     // Montar link do Google Maps
-    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.name || loc.originalInput);
+    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
     const lastP = window._fpSchedulePoints[window._fpSchedulePoints.length - 1];
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
     if (window._fpSchedulePoints.length > 1) {
@@ -2704,7 +3070,7 @@ window.fpSaveEditSchedule = async function() {
   btn.style.pointerEvents = 'none';
 
   try {
-    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.name || loc.originalInput);
+    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
     const lastP = window._editSchedPoints[window._editSchedPoints.length - 1];
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
     if (window._editSchedPoints.length > 1) {
@@ -2954,8 +3320,23 @@ window.saveDriverNickname = async function(driverUid, btn) {
 
 // PAINEL DA FROTA P/ ADMIN (Frota ao Vivo)
 window.openAdminHub = function() {
+  if (!checkRole('admin')) return;
   document.getElementById('adminHubModal').classList.add('active');
   loadAdminHubData();
+};
+
+window.renameDriver = async function(driverUid, oldName) {
+  if (!checkRole('admin')) return;
+  const newNick = prompt(`Alterar apelido para "${oldName}":`, oldName);
+  if (newNick === null) return;
+  
+  try {
+    await updateDoc(doc(db, "users", driverUid), { apelido: newNick.trim() });
+    alert("Apelido atualizado com sucesso!");
+    // O snapshot do loadAdminHubData cuidará da atualização visual
+  } catch(e) {
+    alert("Erro ao atualizar apelido: " + e.message);
+  }
 };
 
 window.closeAdminHub = function() {
@@ -2987,7 +3368,6 @@ async function loadAdminHubData() {
       if (content.querySelector('.status-pulse')) {
         content.innerHTML = `
           <div style="padding: 30px; text-align: center; color: var(--pr-text-muted);">
-            <div style="font-size: 24px; margin-bottom: 10px;">📡</div>
             <p style="font-size: 12px;">A conexão está demorando mais que o esperado.</p>
             <button onclick="window.loadAdminHubData()" class="mbtn mbtn-save" style="margin-top:10px; padding: 8px 16px; font-size:11px;">Tentar Reiniciar Conexão</button>
           </div>`;
@@ -3000,7 +3380,6 @@ async function loadAdminHubData() {
       
       if (snapshot.empty) {
         content.innerHTML = `<div style="padding: 40px; text-align: center; opacity: 0.5;">
-          <div style="font-size: 40px; margin-bottom: 10px;">👥</div>
           <div class="text-dark-auto" style="font-size: 13px; font-weight: 700;">Nenhum motorista vinculado</div>
           <div style="font-size: 11px; color: var(--pr-text-muted); margin-top: 5px;">Use "Minha Frota" para convidar sua equipe.</div>
         </div>`;
@@ -3035,7 +3414,7 @@ async function loadAdminHubData() {
                   <div>
                     <div class="fdc-name" style="display:flex; align-items:center; gap:5px;">
                       ${escapeHTML(displayName)}
-                      <span style="font-size:10px; cursor:pointer; opacity: 0.5;" onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')">✏️</span>
+                      <span style="font-size:10px; cursor:pointer; opacity: 0.5; text-decoration: underline;" onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')">Editar</span>
                     </div>
                     <div class="fdc-email">${escapeHTML(u.email || "")}</div>
                   </div>
@@ -3048,10 +3427,10 @@ async function loadAdminHubData() {
 
               <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
                 <button onclick="window.closeAdminHub(); window.openLiveSpy('${userDoc.id}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px; background:var(--pr-blue-dark);">
-                  <span>🛰️</span> Espionar
+                  Espionar
                 </button>
                 <button onclick="window.openDriverStats('${userDoc.id}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px;">
-                  <span>📈</span> Desempenho
+                  Desempenho
                 </button>
               </div>
             `;
@@ -3074,7 +3453,7 @@ async function loadAdminHubData() {
             let startedTimeHTML = '';
             if (r.startedAt && r.startedAt.toDate) {
               const dObj = r.startedAt.toDate();
-              startedTimeHTML = `<div style="font-size:10px; color:var(--pr-blue-mid); margin-top:2px;">🏎️ Iniciou às ${dObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</div>`;
+              startedTimeHTML = `<div style="font-size:10px; color:var(--pr-blue-mid); margin-top:2px;">Iniciou às ${dObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</div>`;
             }
             
             const locRef = rtdbRef(rtdb, `locations/${window.companyId}/${userDoc.id}`);
@@ -3102,21 +3481,33 @@ async function loadAdminHubData() {
               <div style="background: var(--pr-bg); border-radius: 8px; padding: 10px; margin-top: 4px; border: 1px dashed var(--pr-border);">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                   <div style="font-size:11px; font-weight: 700; color: var(--pr-text);">
-                    📍 ${r.stopsCount || 0} Paradas 
-                    ${r.distance && r.distance !== "—" ? ` | 🛣️ ${r.distance}km` : ''} 
-                    ${r.time && r.time !== "—" ? ` | ⏱️ ${r.time}min` : ''}
+                    ${r.stopsCount || 0} Paradas 
+                    ${r.distance && r.distance !== "—" ? ` | ${r.distance}km` : ''} 
+                    ${r.time && r.time !== "—" ? ` | ${r.time}min` : ''}
                   </div>
                   <div id="hub-nearest-${userDoc.id}" style="font-size:9px; font-weight:700; color:${stBadgeColor};"></div>
                 </div>
                 ${startedTimeHTML}
+                
+                ${(routeStatus === "Concluída" || routeStatus === "Finalizada") ? `
+                  <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--pr-border); display:flex; flex-wrap:wrap; gap:10px;">
+                    <div style="font-size:10px; color:#27ae60; font-weight:700;">⚖️ ${r.cargoWeight || 0}kg</div>
+                    <div style="font-size:10px; color:#e67e22; font-weight:700;">💰 R$ ${(r.cargoValue || 0).toFixed(2)}</div>
+                    ${r.proofPhotoUrl ? `
+                      <a href="${r.proofPhotoUrl}" target="_blank" style="font-size:10px; color:var(--pr-blue-mid); text-decoration:none; font-weight:700; display:flex; align-items:center; gap:3px;">
+                        🖼️ Ver Comprovante
+                      </a>
+                    ` : ''}
+                  </div>
+                ` : ''}
               </div>
 
               <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
                 <button onclick="window.closeAdminHub(); window.openLiveSpy('${userDoc.id}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px; background:var(--pr-blue-dark);">
-                  <span>🛰️</span> Espionar
+                  Espionar
                 </button>
                 <button onclick="window.openDriverStats('${userDoc.id}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px;">
-                  <span>📈</span> Desempenho
+                  Desempenho
                 </button>
               </div>
             `;
@@ -3685,7 +4076,7 @@ const _spyRoleCheckInterval = setInterval(() => {
       const isSelected = spyCenterUid === uid;
 
       const nearest = data.nearestStop;
-      const nearestText = nearest ? `<div style="font-size:9px;color:${color};font-weight:700;margin-top:2px;">📍 Próximo: ${nearest.name} (${nearest.distance}km)</div>` : '';
+      const nearestText = nearest ? `<div style="font-size:9px;color:${color};font-weight:700;margin-top:2px;">Próximo: ${nearest.name} (${nearest.distance}km)</div>` : '';
 
       const pill = document.createElement('button');
       pill.style.cssText = `
@@ -3739,7 +4130,7 @@ const _spyRoleCheckInterval = setInterval(() => {
       const ago = timeAgo(data.ts || Date.now());
 
       const nearest = data.nearestStop;
-      const nearestHTML = nearest ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:4px;">📍 Próximo: ${nearest.name} (${nearest.distance}km)</div>` : '';
+      const nearestHTML = nearest ? `<div style="font-size:11px;color:${color};font-weight:700;margin-top:4px;">Próximo: ${nearest.name} (${nearest.distance}km)</div>` : '';
 
       const svgIcon = L.divIcon({
         html: buildDriverMarkerSVG(initial, color),
@@ -3752,8 +4143,8 @@ const _spyRoleCheckInterval = setInterval(() => {
       const popupContent = `
         <div style="font-family:Inter,Arial,sans-serif;padding:4px 2px;min-width:160px;">
           <div style="font-weight:700;font-size:13px;color:#1a2b3d;margin-bottom:4px;">${escapeHTML(name)}</div>
-          <div style="font-size:11px;color:#6B7C8E;margin-bottom:2px;">🚗 ${speed} km/h</div>
-          <div style="font-size:11px;color:#6B7C8E;margin-bottom:4px;">⏱ ${ago}</div>
+          <div style="font-size:11px;color:#6B7C8E;margin-bottom:2px;">Velocidade: ${speed} km/h</div>
+          <div style="font-size:11px;color:#6B7C8E;margin-bottom:4px;">Visto: ${ago}</div>
           ${nearestHTML}
           <a href="https://www.google.com/maps?q=${data.lat},${data.lng}" target="_blank"
             style="font-size:11px;color:#1A6BAF;font-weight:600;">Ver no Google Maps ↗</a>
@@ -3843,7 +4234,7 @@ const _spyRoleCheckInterval = setInterval(() => {
     document.getElementById('statsDriverAvatar').textContent = name.charAt(0).toUpperCase();
     
     const listContainer = document.getElementById('statsHistoryList');
-    listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">⏳ Analisando rotas...</div>';
+    listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">Analisando rotas...</div>';
     
     try {
       const q = query(
@@ -3855,11 +4246,14 @@ const _spyRoleCheckInterval = setInterval(() => {
       const snap = await getDocs(q);
       let totalRoutes = 0;
       let totalStops = 0;
+      let totalValue = 0;
       
       if (snap.empty) {
         listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">Nenhuma rota encontrada para este motorista.</div>';
         document.getElementById('statTotalRoutes').textContent = '0';
         document.getElementById('statTotalStops').textContent = '0';
+        const tv = document.getElementById('statTotalValue');
+        if(tv) tv.textContent = 'R$ 0,00';
         return;
       }
       
@@ -3867,15 +4261,23 @@ const _spyRoleCheckInterval = setInterval(() => {
       
       snap.forEach(docSnap => {
         const data = docSnap.data();
-        if (data.status === 'CONCLUDED' || data.status === 'Concluída') {
-          totalRoutes++;
-          totalStops += (data.stopsCount || (data.stops ? data.stops.length : 0));
-        }
+        const isConcluded = (data.status === 'CONCLUDED' || data.status === 'Concluída');
+        
+        // Desempenho: somar o que foi efetivamente entregue (valores acumulados ou valor final se for legado)
+        const deliveredVal = Number(data.deliveredValue || data.cargoValue || 0);
+        const deliveredWeight = Number(data.deliveredWeight || data.cargoWeight || 0);
+        const commVal = Number(data.totalCommission || data.commissionValue || 0);
+
+        totalRoutes++;
+        totalStops += (data.stopsCount || (data.stops ? data.stops.length : 0));
+        totalValue += deliveredVal;
         
         const date = data.createdAt ? data.createdAt.toDate().toLocaleDateString('pt-BR') : '—';
         const stops = data.stopsCount || (data.stops ? data.stops.length : 0);
-        const statusClass = (data.status === 'CONCLUDED' || data.status === 'Concluída') ? 'concluded' : 'pending';
-        const statusLabel = (data.status === 'CONCLUDED' || data.status === 'Concluída') ? 'Concluída' : data.status;
+        const statusClass = isConcluded ? 'concluded' : 'pending';
+        const statusLabel = isConcluded ? 'Concluída' : data.status;
+
+        const cargoInfo = `<div style="font-size:10px; color:var(--pr-blue-mid); margin-top:4px; font-weight:600;">Entregue: ${deliveredWeight}kg · R$ ${deliveredVal.toFixed(2)} · Comiss: R$ ${commVal.toFixed(2)}</div>`;
 
         const item = document.createElement('div');
         item.className = 'stats-history-card';
@@ -3883,6 +4285,7 @@ const _spyRoleCheckInterval = setInterval(() => {
           <div class="history-info">
             <div class="history-date">${date}</div>
             <div class="history-meta">${stops} paradas • ${data.distance || '—'} km</div>
+            ${cargoInfo}
           </div>
           <div class="history-status ${statusClass}">${statusLabel}</div>
         `;
@@ -3891,6 +4294,10 @@ const _spyRoleCheckInterval = setInterval(() => {
       
       document.getElementById('statTotalRoutes').textContent = totalRoutes;
       document.getElementById('statTotalStops').textContent = totalStops;
+      const tvEl = document.getElementById('statTotalValue');
+      if (tvEl) {
+        tvEl.textContent = 'R$ ' + totalValue.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+      }
       
     } catch (err) {
       console.error("Erro ao carregar estatísticas:", err);
@@ -3901,6 +4308,430 @@ const _spyRoleCheckInterval = setInterval(() => {
   window.closeDriverStatsModal = function() {
     const modal = document.getElementById('driverStatsModal');
     if (modal) modal.classList.remove('active');
+  };
+
+})();
+
+// ══════════════════════════════════════════════════════════
+// META MENSAL — Modal, Salvar e Deduzir
+// ══════════════════════════════════════════════════════════
+
+(function() {
+
+  // ── Constantes de ID do documento ativo ──────────────────
+  const ACTIVE_GOAL_DOC = 'active';
+
+  // Retorna ref do doc de meta ativa da empresa
+  function goalRef() {
+    return doc(db, 'monthly_goals', `${window.companyId}_${ACTIVE_GOAL_DOC}`);
+  }
+
+  // ── Abrir / Fechar modal ──────────────────────────────────
+  window.openMonthlyGoalsModal = async function() {
+    if (window.userRole !== 'admin') {
+      alert('Apenas administradores podem acessar as metas mensais.');
+      return;
+    }
+    document.getElementById('monthlyGoalsModal').classList.add('active');
+    await loadGoalIntoForm();
+  };
+
+  window.closeMonthlyGoalsModal = function() {
+    document.getElementById('monthlyGoalsModal').classList.remove('active');
+  };
+
+  // ── Carregar meta ativa no formulário ────────────────────
+  async function loadGoalIntoForm() {
+    try {
+      const snap = await getDoc(goalRef());
+      if (!snap.exists()) {
+        // Sem meta ainda — limpar campos
+        ['mgCycleStart','mgCycleEnd','mgWeightMin','mgWeightMax','mgRevGoal'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = '';
+        });
+        document.getElementById('mgProgressCard').style.display = 'none';
+        return;
+      }
+
+      const g = snap.data();
+
+      const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
+      setVal('mgCycleStart', g.cycleStart);
+      setVal('mgCycleEnd',   g.cycleEnd);
+      setVal('mgWeightMin',  g.weightMin);
+      setVal('mgWeightMax',  g.weightMax);
+      setVal('mgRevGoal',    g.revGoal);
+
+      // Atualizar barras de progresso
+      const usedWeight = g.usedWeight || 0;
+      const usedValue  = g.usedValue  || 0;
+      const maxWeight  = g.weightMax  || 1;
+      const maxValue   = g.revGoal    || 1;
+
+      const wPct = Math.min(100, (usedWeight / maxWeight) * 100).toFixed(1);
+      const vPct = Math.min(100, (usedValue  / maxValue ) * 100).toFixed(1);
+
+      const wBar   = document.getElementById('mgWeightBar');
+      const vBar   = document.getElementById('mgValueBar');
+      const wLabel = document.getElementById('mgWeightLabel');
+      const vLabel = document.getElementById('mgValueLabel');
+      const cLabel = document.getElementById('mgCycleLabel');
+
+      if (wBar)   wBar.style.width   = wPct + '%';
+      if (vBar)   vBar.style.width   = vPct + '%';
+      if (wLabel) wLabel.textContent = `${usedWeight.toFixed(1)} / ${maxWeight} kg  (${wPct}%)`;
+      if (vLabel) vLabel.textContent = `R$ ${usedValue.toFixed(2)} / R$ ${maxValue.toFixed(2)}  (${vPct}%)`;
+
+      // Ciclo — datas do ciclo atual
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth();
+      const startDay = g.cycleStart || 1;
+      const endDay = g.cycleEnd || 30;
+      
+      let startDateMonth = month;
+      let endDateMonth = month;
+      
+      if (startDay > endDay) {
+        if (now.getDate() >= startDay) {
+          endDateMonth = month + 1;
+        } else {
+          startDateMonth = month - 1;
+        }
+      }
+      
+      const startDate = new Date(year, startDateMonth, startDay);
+      const endDate   = new Date(year, endDateMonth, endDay);
+      const fmtDate = d => d.toLocaleDateString('pt-BR', {day:'2-digit', month:'short'});
+      if (cLabel) cLabel.textContent = `Ciclo: ${fmtDate(startDate)} → ${fmtDate(endDate)}`;
+
+      document.getElementById('mgProgressCard').style.display = 'block';
+
+    } catch(e) {
+      console.warn('[MonthlyGoal] Erro ao carregar meta:', e.message);
+    }
+  }
+
+  // ── Salvar meta ──────────────────────────────────────────
+  window.saveMonthlyGoal = async function() {
+    const btn = document.getElementById('mgSaveBtn');
+    if (btn) { btn.textContent = '⏳ Salvando...'; btn.disabled = true; }
+
+    const getNum = id => parseFloat(document.getElementById(id)?.value) || 0;
+
+    const cycleStart = getNum('mgCycleStart');
+    const cycleEnd   = getNum('mgCycleEnd');
+    const weightMin  = getNum('mgWeightMin');
+    const weightMax  = getNum('mgWeightMax');
+    const revGoal    = getNum('mgRevGoal');
+
+    if (!cycleStart || !cycleEnd) {
+      alert('Preencha os dias de Início e Término do ciclo.');
+      if (btn) { btn.textContent = '💾 Salvar Meta'; btn.disabled = false; }
+      return;
+    }
+    if (cycleStart === cycleEnd) {
+      alert('O dia de Início não pode ser igual ao dia de Término.');
+      if (btn) { btn.textContent = '💾 Salvar Meta'; btn.disabled = false; }
+      return;
+    }
+    if (!weightMax || !revGoal) {
+      alert('Preencha a meta de Peso Máximo e Faturamento.');
+      if (btn) { btn.textContent = '💾 Salvar Meta'; btn.disabled = false; }
+      return;
+    }
+
+    try {
+      // Verificar se já existe doc — preservar usedWeight e usedValue
+      let usedWeight = 0, usedValue = 0;
+      try {
+        const snap = await getDoc(goalRef());
+        if (snap.exists()) {
+          usedWeight = snap.data().usedWeight || 0;
+          usedValue  = snap.data().usedValue  || 0;
+        }
+      } catch(_) { /* ignorar se novo */ }
+
+      await setDoc(goalRef(), {
+        companyId:   window.companyId,
+        cycleStart,
+        cycleEnd,
+        weightMin,
+        weightMax,
+        revGoal,
+        usedWeight,
+        usedValue,
+        updatedAt: serverTimestamp()
+      });
+
+      alert('Meta mensal salva com sucesso!');
+      await loadGoalIntoForm();
+
+      // Fechar modal de configuração e abrir dashboard de analytics
+      window.closeMonthlyGoalsModal();
+      window.openGoalsDashboard();
+
+    } catch(e) {
+      console.error('[MonthlyGoal] Erro ao salvar:', e);
+      alert('Erro ao salvar meta: ' + e.message);
+    } finally {
+      if (btn) { btn.textContent = '💾 Salvar Meta'; btn.disabled = false; }
+    }
+  };
+
+  // ── Dashboard de Analytics das Metas ──────────────────────
+  window.openGoalsDashboard = async function() {
+    const panel = document.getElementById('goalsDashboardPanel');
+    const card = document.getElementById('dailyRouteCard');
+    const badge = document.getElementById('pdRouteDetails');
+    const pill = document.getElementById('mapStatsPill');
+    if (!panel) return;
+    
+    // Fechar painel da frota se estiver aberto
+    if (window.closeFleetPanel) window.closeFleetPanel();
+
+    if (card) card.style.display = 'none';
+    if (badge) badge.style.display = 'none';
+    if (pill) pill.style.display = 'none';
+
+    panel.style.display = 'flex';
+    
+    // 1. Carregar Meta Ativa
+    const snap = await getDoc(goalRef());
+    if (!snap.exists()) {
+      alert("Nenhuma meta configurada. Configure a meta primeiro.");
+      return;
+    }
+    const g = snap.data();
+    
+    // 2. Calcular Datas do Ciclo
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const startDay = g.cycleStart || 1;
+    const endDay = g.cycleEnd || 30;
+    
+    let startDateMonth = month;
+    let endDateMonth = month;
+    if (startDay > endDay) {
+      if (now.getDate() >= startDay) endDateMonth = month + 1;
+      else startDateMonth = month - 1;
+    }
+    const startDate = new Date(year, startDateMonth, startDay, 0, 0, 0);
+    const endDate = new Date(year, endDateMonth, endDay, 23, 59, 59);
+    
+    const fmt = d => d.toLocaleDateString('pt-BR', {day:'2-digit', month:'short'});
+    document.getElementById('gdCycleRange').textContent = `Ciclo: ${fmt(startDate)} → ${fmt(endDate)}`;
+
+    // 3. Progresso Circular (Baseado no acumulado do Firestore)
+    const usedW = g.usedWeight || 0;
+    const goalW = g.weightMax || 1;
+    const usedV = g.usedValue || 0;
+    const goalV = g.revGoal || 1;
+
+    const wPct = Math.min(100, (usedW / goalW) * 100);
+    const vPct = Math.min(100, (usedV / goalV) * 100);
+
+    // Atualizar UI Circular
+    const setCircle = (idStroke, idPct, idText, val, total, pct, isMoney) => {
+      const stroke = document.getElementById(idStroke);
+      const pctEl = document.getElementById(idPct);
+      const textEl = document.getElementById(idText);
+      const offset = 339.29 - (339.29 * pct / 100);
+      if (stroke) stroke.style.strokeDashoffset = offset;
+      if (pctEl) pctEl.textContent = `${pct.toFixed(0)}%`;
+      if (textEl) {
+        if (isMoney) textEl.textContent = `R$ ${val.toLocaleString('pt-BR')} / ${total.toLocaleString('pt-BR')}`;
+        else textEl.textContent = `${val.toFixed(1)} / ${total} kg`;
+      }
+    };
+    setCircle('gdWeightCircleStroke', 'gdWeightPct', 'gdWeightText', usedW, goalW, wPct, false);
+    setCircle('gdValueCircleStroke', 'gdValuePct', 'gdValueText', usedV, goalV, vPct, true);
+
+    // 4. Buscar Dados para Gráficos de Desempenho
+    await fetchAndRenderPerformance(startDate, endDate);
+  };
+
+  window.closeGoalsDashboard = function() {
+    const panel = document.getElementById('goalsDashboardPanel');
+    const card = document.getElementById('dailyRouteCard');
+    const badge = document.getElementById('pdRouteDetails');
+    const pill = document.getElementById('mapStatsPill');
+
+    if (panel) panel.style.display = 'none';
+    
+    // Restaurar elementos do mapa se o painel da frota não estiver visível
+    const fleetPanel = document.getElementById('fleetPanel');
+    const isFleetOpen = fleetPanel && fleetPanel.style.display !== 'none';
+    
+    if (!isFleetOpen) {
+      if (card) card.style.display = '';
+      if (badge) badge.style.display = '';
+      if (pill) pill.style.display = '';
+    }
+  };
+
+  async function fetchAndRenderPerformance(startDate, endDate) {
+    try {
+      const driversSnap = await getDocs(collection(db, "users"));
+      const driverIds = [];
+      driversSnap.forEach(d => { if(d.data().role === 'driver') driverIds.push(d.id); });
+
+      let dailyData = {};
+      let weeklyData = [0, 0, 0, 0, 0];
+      let concludedCount = 0;
+      let pendingCount = 0;
+
+      const historyPromises = driverIds.map(async (uid) => {
+        const q = query(
+          collection(db, "users", uid, "history"),
+          where("createdAt", ">=", startDate),
+          where("createdAt", "<=", endDate)
+        );
+        const hSnap = await getDocs(q);
+        hSnap.forEach(doc => {
+          const data = doc.data();
+          const weight = Number(data.deliveredWeight || data.cargoWeight || 0);
+          const dateObj = data.createdAt.toDate();
+          const dateStr = dateObj.toISOString().split('T')[0];
+          const isDone = (data.status === 'CONCLUDED' || data.status === 'Concluída');
+
+          if (isDone) {
+            concludedCount++;
+            dailyData[dateStr] = (dailyData[dateStr] || 0) + weight;
+            const diffDays = Math.floor((dateObj - startDate) / (1000 * 60 * 60 * 24));
+            const weekIdx = Math.floor(diffDays / 7);
+            if (weekIdx >= 0 && weekIdx < 5) weeklyData[weekIdx] += weight;
+          } else {
+            pendingCount++;
+          }
+        });
+      });
+
+      await Promise.all(historyPromises);
+
+      renderDailyChart(dailyData);
+      renderWeeklyChart(weeklyData);
+
+      const totalRoutes = (concludedCount + pendingCount) || 1;
+      const concPct = (concludedCount / totalRoutes) * 100;
+      const pendPct = (pendingCount / totalRoutes) * 100;
+
+      document.getElementById('gdConcludedCount').textContent = concludedCount;
+      document.getElementById('gdPendingCount').textContent = pendingCount;
+      document.getElementById('gdConcludedBar').style.width = concPct + '%';
+      document.getElementById('gdPendingBar').style.width = pendPct + '%';
+
+    } catch(e) {
+      console.warn('[Dashboard] Erro ao processar performance:', e);
+    }
+  }
+
+  function renderDailyChart(dailyData) {
+    const container = document.getElementById('gdDailyChart');
+    const labelsCont = document.getElementById('gdDailyLabels');
+    if (!container) return;
+    container.innerHTML = '';
+    labelsCont.innerHTML = '';
+
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push(d.toISOString().split('T')[0]);
+    }
+
+    const maxWeight = Math.max(...Object.values(dailyData), 100);
+
+    days.forEach(dateStr => {
+      const weight = dailyData[dateStr] || 0;
+      const heightPct = (weight / maxWeight) * 100;
+      const dayName = new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR', {weekday: 'short'}).toUpperCase().replace('.','');
+
+      const bar = document.createElement('div');
+      bar.className = 'gd-bar-container';
+      bar.innerHTML = `
+        <div class="gd-bar" style="height: ${heightPct}%; background: var(--pr-blue-mid);" data-value="${weight.toFixed(0)} kg">
+        </div>
+      `;
+      container.appendChild(bar);
+
+      const lbl = document.createElement('span');
+      lbl.style.cssText = 'font-size:9px; font-weight:700; color:var(--pr-text-muted); width:30px; text-align:center;';
+      lbl.textContent = dayName;
+      labelsCont.appendChild(lbl);
+    });
+  }
+
+  function renderWeeklyChart(weeklyData) {
+    const container = document.getElementById('gdWeeklyChart');
+    const labelsCont = document.getElementById('gdWeeklyLabels');
+    if (!container) return;
+    container.innerHTML = '';
+    labelsCont.innerHTML = '';
+
+    const maxW = Math.max(...weeklyData, 500);
+
+    weeklyData.forEach((weight, i) => {
+      const heightPct = (weight / maxW) * 100;
+      const bar = document.createElement('div');
+      bar.className = 'gd-bar-container';
+      bar.style.flex = '1';
+      bar.innerHTML = `
+        <div class="gd-bar" style="height: ${heightPct}%; background: var(--pr-blue-dark); border-radius: 4px 4px 0 0;" data-value="SEM ${i+1}: ${weight.toFixed(0)} kg">
+        </div>
+      `;
+      container.appendChild(bar);
+
+      const lbl = document.createElement('span');
+      lbl.style.cssText = 'font-size:9px; font-weight:700; color:var(--pr-text-muted); flex:1; text-align:center;';
+      lbl.textContent = `SEM ${i+1}`;
+      labelsCont.appendChild(lbl);
+    });
+  }
+
+  // ── Deduzir peso e valor da meta ativa ───────────────────
+  // Chamado por generateManualRoute após salvar a rota
+  window.deductFromMonthlyGoal = async function(weight, value) {
+    if (!weight && !value) return;
+    try {
+      const snap = await getDoc(goalRef());
+      if (!snap.exists()) return; // Sem meta configurada — silencioso
+
+      const g = snap.data();
+
+      // Verificar se data atual está dentro do ciclo
+      const now = new Date();
+      const day = now.getDate();
+      const start = g.cycleStart || 1;
+      const end = g.cycleEnd || 31;
+      
+      let inCycle = false;
+      if (start <= end) {
+        inCycle = day >= start && day <= end;
+      } else {
+        inCycle = day >= start || day <= end;
+      }
+
+      if (!inCycle) {
+        console.log('[MonthlyGoal] Fora do ciclo — sem dedução.');
+        return;
+      }
+
+      const newUsedWeight = (g.usedWeight || 0) + (weight || 0);
+      const newUsedValue  = (g.usedValue  || 0) + (value  || 0);
+
+      await updateDoc(goalRef(), {
+        usedWeight: newUsedWeight,
+        usedValue:  newUsedValue,
+        lastDeductedAt: serverTimestamp()
+      });
+
+      console.log(`[MonthlyGoal] Deduzido: ${weight}kg / R$${value} → Total: ${newUsedWeight}kg / R$${newUsedValue}`);
+    } catch(e) {
+      console.warn('[MonthlyGoal] Erro na dedução:', e.message);
+    }
   };
 
 })();

@@ -1003,6 +1003,58 @@ body {
   color: #EA4335;
 }
 
+/* ═══ FLEET PANELS (Common for Analytics/Future Routes) ═══ */
+.fleet-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--pr-bg);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  box-shadow: none;
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+  animation: panelSlideIn 0.3s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+}
+
+@keyframes panelSlideIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.fleet-panel-header {
+  padding: 18px 24px;
+  background: var(--pr-surface);
+  border-bottom: 1px solid var(--pr-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.fleet-panel-title { font-size: 18px; font-weight: 800; color: var(--pr-text); margin: 0; }
+.fleet-panel-subtitle { font-size: 11px; color: var(--pr-text-muted); margin: 4px 0 0; font-weight: 600; text-transform: uppercase; }
+
+.fleet-panel-close {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: none; background: var(--pr-bg); color: var(--pr-text);
+  font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+}
+.fleet-panel-close:hover { background: #ff7675; color: #fff; }
+
+.fp-detail-body {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 768px) {
+  .fleet-panel { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; }
+}
+
 /* ═══ DRIVER STATS & HISTORY STYLES ═══ */
 .stats-history-card {
   background: var(--pr-surface);
@@ -1034,3 +1086,78 @@ body {
     max-height: 90vh;
   }
 }
+
+/* ═══ GOALS DASHBOARD ANALYTICS ═══ */
+.chart-circle {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chart-val {
+  position: absolute;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--pr-blue-dark);
+}
+.dm .chart-val { color: var(--pr-blue-light); }
+
+.gd-bar-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+}
+.gd-bar {
+  width: 100%;
+  background: linear-gradient(to top, var(--pr-blue-mid), var(--pr-blue-light));
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+  transition: height 1s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+  position: relative;
+}
+.gd-bar:hover {
+  filter: brightness(1.1);
+}
+.gd-bar::after {
+  content: attr(data-value);
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--pr-text);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.gd-bar:hover::after { opacity: 1; }
+
+.gd-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--pr-text-muted);
+  text-transform: uppercase;
+}
+
+.motiv-card {
+  background: var(--pr-surface);
+  border-radius: 16px;
+  border: 1px solid var(--pr-border);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  transition: all 0.3s ease;
+}
+.motiv-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+
+.motiv-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+.motiv-emoji { font-size: 20px; }
+.motiv-title { font-size: 14px; font-weight: 800; color: var(--pr-text); letter-spacing: -0.01em; }
