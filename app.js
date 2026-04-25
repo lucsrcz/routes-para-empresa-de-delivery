@@ -1,21 +1,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
-import { getFirestore, collection, addDoc, getDocs, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch, increment } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, limit, deleteDoc, serverTimestamp, arrayUnion, arrayRemove, where, getDocs, writeBatch, increment } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 import { getDatabase, ref as rtdbRef, set as rtdbSet, onValue, off, remove as rtdbRemove } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-storage.js";
+import CONFIG from "./config.js";
 
-const firebaseConfig = {
-  projectId: "rotas-cabun-app",
-  appId: "1:1017676204969:web:226223216f8dde86a752b8",
-  storageBucket: "rotas-cabun-app.firebasestorage.app",
-  apiKey: "AIzaSyCwFuaNuzw50bn9CV2RnP3xTx8TNcFr6D4",
-  authDomain: "rotas-cabun-app.firebaseapp.com",
-  messagingSenderId: "1017676204969",
-  measurementId: "G-YDQLXK9YHY",
-  databaseURL: "https://rotas-cabun-app-default-rtdb.firebaseio.com"
-};
-
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(CONFIG.firebase);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const rtdb = getDatabase(app);
@@ -27,6 +17,68 @@ let userCoords = null;
 let driverMissionsUnsubscribe = null;
 let deliveryPhotoBuffer = null;
 let currentMissionIdForCompletion = null;
+
+// ══════════════════════════════════════════════════════════
+// UTILS & NOTIFICATIONS
+// ══════════════════════════════════════════════════════════
+
+window.showToast = (message, type = 'info') => {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  let icon = 'ℹ️';
+  if (type === 'success') icon = '✅';
+  if (type === 'error') icon = '❌';
+  if (type === 'warning') icon = '⚠️';
+  toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+};
+
+// --- CONFIRM MODAL (PREMIUM) ---
+window.showConfirm = function(message, title = "Confirmação", icon = "❓") {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('confirmModal');
+    const msgEl = document.getElementById('confirmMessage');
+    const titleEl = document.getElementById('confirmTitle');
+    const iconEl = document.getElementById('confirmIcon');
+    const cancelBtn = document.getElementById('confirmCancelBtn');
+    const confirmBtn = document.getElementById('confirmConfirmBtn');
+
+    if (!modal) {
+      resolve(confirm(message));
+      return;
+    }
+
+    msgEl.textContent = message;
+    titleEl.textContent = title;
+    iconEl.textContent = icon;
+
+    modal.classList.add('active');
+
+    const cleanup = (result) => {
+      modal.classList.remove('active');
+      cancelBtn.onclick = null;
+      confirmBtn.onclick = null;
+      resolve(result);
+    };
+
+    cancelBtn.onclick = () => cleanup(false);
+    confirmBtn.onclick = () => cleanup(true);
+  });
+};
+
+// Caching para regras de comissão
+window._commissionRulesCache = null;
+window._commissionRulesLastFetch = 0;
 
 // Sanitização XSS — escapa HTML em conteúdo dinâmico
 function escapeHTML(str) {
@@ -191,27 +243,27 @@ window.companyId = null;
 window.checkRole = function(role) {
   if (window.userRole !== role) {
     console.warn(`[Permissões] Acesso negado para ${role}. Atual: ${window.userRole}`);
-    alert("⚠️ Acesso Negado: Você não tem permissão para realizar esta ação.");
+    showToast("Acesso Negado: Permissão insuficiente.", "error");
     return false;
   }
   return true;
 };
 
 // ══════════════════════════════════════════════════════════
-// GLOBAL FAIL-SAFE LOADER
+// GLOBAL LOADER & FAIL-SAFE
 // ══════════════════════════════════════════════════════════
-(function() {
-  const hideLdr = () => {
-    const ldr = document.getElementById('appLoader');
-    if (ldr) ldr.style.display = 'none';
-    const shl = document.getElementById('shell');
-    if (shl) shl.style.visibility = 'visible';
-  };
-  window._loaderFailSafe = setTimeout(() => {
-    console.warn("Global Fail-safe: Excedido tempo de inicialização.");
-    hideLdr();
-  }, 10000);
-})();
+window.hideLoader = () => {
+  const loader = document.getElementById('appLoader');
+  if (loader) loader.style.display = 'none';
+  const shell = document.getElementById('shell');
+  if (shell) shell.style.visibility = 'visible';
+  if (window._loaderFailSafe) clearTimeout(window._loaderFailSafe);
+};
+
+window._loaderFailSafe = setTimeout(() => {
+  console.warn("Global Fail-safe: Excedido tempo de inicialização.");
+  window.hideLoader();
+}, 10000);
 
 // ══════════════════════════════════════════════════════════
 // MENSAGEM MOTIVACIONAL — SINCRONIZADA COM O DIA DA SEMANA
@@ -397,6 +449,12 @@ async function applyRoleUI() {
 
 function loadDriverMissions() {
   if (!currentUser) return;
+  
+  // Unsubscribe from previous listener to avoid memory leaks and duplicate updates
+  if (driverMissionsUnsubscribe) {
+    driverMissionsUnsubscribe();
+    driverMissionsUnsubscribe = null;
+  }
   
   // Listen to the driver's own history collection (missions sent by admin)
   const qMissions = query(
@@ -669,7 +727,7 @@ window.closeDeliveryModal = function() {
 window.confirmDelivery = async function() {
   if (!currentMissionIdForCompletion) return;
   if (!currentUser) {
-    alert("Erro: Usuário não autenticado.");
+    showToast("Erro: Usuário não autenticado.", "warning");
     return;
   }
   
@@ -682,13 +740,13 @@ window.confirmDelivery = async function() {
   const cargoValue = parseFloat(cargoVal) || 0;
   
   if (isNaN(weight) || weight <= 0) {
-    alert("⚠️ Por favor, informe o peso da mercadoria (maior que zero).");
+    showToast("Informe o peso da mercadoria.", "warning");
     document.getElementById('deliveryWeight').focus();
     return;
   }
 
   if (!deliveryPhotoBuffer) {
-    alert("A foto do comprovante é obrigatória para finalizar a entrega.");
+    showToast("A foto do comprovante é obrigatória.", "warning");
     document.getElementById('deliveryPhotoInput').click();
     return;
   }
@@ -743,8 +801,13 @@ window.confirmDelivery = async function() {
     const currentDeliveredValue = (routeSnap.exists() ? routeSnap.data().deliveredValue : 0) || 0;
     const currentTotalCommission = (routeSnap.exists() ? routeSnap.data().totalCommission : 0) || 0;
 
-    // 1. Atualizar status da rota
-    await window.updateRouteStatus(currentMissionIdForCompletion, finalStatus, {
+    // --- OPERAÇÃO ATÔMICA (BATCH) ---
+    console.log("[Delivery] Gravando dados atômicamente...");
+    const batch = writeBatch(db);
+
+    // 1. Atualizar documento da rota (History)
+    const routePayload = {
+      status: finalStatus,
       completedAt: serverTimestamp(),
       lastWeight: weight,
       lastValue: cargoValue,
@@ -756,10 +819,22 @@ window.confirmDelivery = async function() {
       finishedBy: currentUser.uid,
       expectedWeight: newExpectedWeight, 
       expectedValue: newExpectedValue
-    });
+    };
+    batch.update(routeDocRef, routePayload);
 
-    // 2. Incrementar estatísticas vitalícias (Campos para Admin/Dashboard)
-    await updateDoc(doc(db, "users", currentUser.uid), {
+    // 2. Atualizar perfil do usuário (Denormalização e Estatísticas)
+    const userRef = doc(db, "users", currentUser.uid);
+    batch.update(userRef, {
+      currentStatus: finalStatus,
+      lastStatusUpdate: serverTimestamp(),
+      lastRouteSummary: {
+        id: currentMissionIdForCompletion,
+        status: finalStatus,
+        updatedAt: serverTimestamp(),
+        expectedWeight: newExpectedWeight,
+        expectedValue: newExpectedValue
+      },
+      // Incrementos vitalícios
       perfTotalWeight:     increment(weight),
       perfTotalValue:      increment(cargoValue),
       perfTotalCommission: increment(commission),
@@ -767,13 +842,15 @@ window.confirmDelivery = async function() {
       perfLastDeliveryAt:  serverTimestamp()
     });
 
-    alert("✅ Entrega registrada com sucesso!");
+    await batch.commit();
+
+    showToast("Entrega registrada com sucesso!", "success");
     window.closeDeliveryModal();
     if (window.loadDriverMissions) window.loadDriverMissions();
     
   } catch (e) {
     console.error("[Delivery] Erro crítico:", e);
-    alert("❌ Erro ao salvar entrega: " + (e.message || "Verifique sua conexão."));
+    showToast("Erro ao salvar entrega: " + (e.message || "Verifique sua conexão."), "error");
   } finally {
     btn.disabled = false;
     btn.innerHTML = originalText;
@@ -832,7 +909,7 @@ window.closeCommissionRulesModal = function() {
 
 window.saveCommissionRule = async function() {
   if (!checkRole('admin')) {
-    alert("Acesso negado. Somente administradores podem salvar regras.");
+    showToast("Acesso negado: Somente administradores.", "error");
     return;
   }
   
@@ -856,13 +933,13 @@ window.saveCommissionRule = async function() {
   const val = parseFloat(valInput.value);
   
   if (isNaN(min) || isNaN(max) || isNaN(val)) {
-    alert("Preencha todos os campos da faixa (Min, Max e Valor).");
+    showToast("Preencha todos os campos da faixa.", "warning");
     return;
   }
 
   const cId = window.companyId || (currentUser ? currentUser.uid : null);
   if (!cId) {
-    alert("Empresa nao identificada. Tente recarregar a pagina.");
+    showToast("Empresa não identificada.", "error");
     return;
   }
 
@@ -885,7 +962,7 @@ window.saveCommissionRule = async function() {
     if (window.loadCommissionRules) window.loadCommissionRules();
   } catch (e) {
     console.error("Erro ao salvar regra:", e);
-    alert("Erro ao salvar regra: " + e.message);
+    showToast("Erro ao salvar regra: " + e.message, "error");
   }
 };
 
@@ -926,12 +1003,12 @@ window.loadCommissionRules = async function() {
 };
 
 window.deleteCommissionRule = async function(ruleId) {
-  if (confirm("Deseja excluir esta regra?")) {
+  if (await window.showConfirm("Deseja excluir esta regra?", "Excluir Regra", "🗑️")) {
     try {
       await deleteDoc(doc(db, "commission_rules", ruleId));
       window.loadCommissionRules();
     } catch (e) {
-      alert("Erro ao excluir: " + e.message);
+      showToast("Erro ao excluir: " + e.message, "error");
     }
   }
 };
@@ -1004,10 +1081,10 @@ window.updateProfileData = async function() {
       navAvatar.textContent = getInitials(nome || currentUser.email || 'A');
     }
     
-    alert("Perfil atualizado com sucesso!");
+    showToast("Perfil atualizado com sucesso!", "success");
     window.closeProfileModal();
   } catch (e) {
-    alert("Erro ao atualizar perfil: " + e.message);
+    showToast("Erro ao atualizar perfil: " + e.message, "error");
   }
 };
 
@@ -1075,13 +1152,7 @@ onAuthStateChanged(auth, async (user) => {
         }
       }
 
-      function hideLoader() {
-        const loader = document.getElementById('appLoader');
-        if (loader) loader.style.display = 'none';
-        const shell = document.getElementById('shell');
-        if (shell) shell.style.visibility = 'visible';
-        if (window._loaderFailSafe) clearTimeout(window._loaderFailSafe);
-      }
+      // Logic moved to global window.hideLoader
 
 
       // ══════════════════════════════════════════════════════
@@ -1110,9 +1181,9 @@ onAuthStateChanged(auth, async (user) => {
             // Limpar o ?convite= da URL sem recarregar
             window.history.replaceState({}, document.title, window.location.pathname);
 
-            alert(`✨ Conta vinculada automaticamente à frota do Administrador!`);
-            hideLoader();
-            applyRoleUI();
+            showToast(`Conta vinculada à frota com sucesso!`, 'success');
+      applyRoleUI();
+      window.hideLoader();
             loadLocations();
             return;
           }
@@ -1143,7 +1214,9 @@ onAuthStateChanged(auth, async (user) => {
                 window.adminId = inviteData.adminId;
                 window.companyId = inviteData.adminId;
                 
-                alert(`✨ Conta vinculada automaticamente à frota via Convite!`);
+                window.companyId = inviteData.adminId;
+                
+                showToast(`Conta vinculada à frota via Convite!`, 'success');
                 hideLoader();
                 applyRoleUI();
                 loadLocations();
@@ -1178,7 +1251,7 @@ onAuthStateChanged(auth, async (user) => {
 
 // Generate Admin Invite
 window.generateAdminInviteToken = async function() {
-  if (confirm("Gerar uma nova chave secreta gerencial?\nEsta chave poderá ser usada UMA vez.")) {
+  if (await window.showConfirm("Gerar uma nova chave secreta gerencial?\nEsta chave poderá ser usada UMA vez.", "Nova Chave", "🔑")) {
     try {
       const code = 'ADM-' + Math.random().toString(36).substring(2, 8).toUpperCase();
       await setDoc(doc(db, "admin_keys", code), {
@@ -1189,9 +1262,10 @@ window.generateAdminInviteToken = async function() {
       });
       document.getElementById('adminInviteResult').style.display = 'block';
       document.getElementById('adminInviteKeyText').innerText = code;
+      showToast("Chave gerada com sucesso!", "success");
     } catch (e) {
       console.error(e);
-      alert("Erro ao criar chave. Você tem permissão?");
+      showToast("Erro ao criar chave. Verifique suas permissões.", "error");
     }
   }
 };
@@ -1221,24 +1295,24 @@ window.submitRoleSelection = async function(role) {
       document.getElementById('rolePickerModal').classList.remove('active');
       applyRoleUI();
       loadLocations();
-      alert("Frota criada com sucesso! Bem-vindo(a).");
+      showToast("Frota criada com sucesso! Bem-vindo(a).", "success");
       return;
 
     } else if (role === 'admin') {
       const secretInput = document.getElementById('rpAdminInput').value.trim().toUpperCase();
       if (!secretInput) {
-        alert("Preencha a chave secreta de Administrador!");
+        showToast("Preencha a chave secreta!", "warning");
         return;
       }
 
       const keyRef = doc(db, "admin_keys", secretInput);
       const keySnap = await getDoc(keyRef);
       if (!keySnap.exists()) {
-        alert("Chave inexistente!");
+        showToast("Chave inexistente!", "error");
         return;
       }
       if (keySnap.data().usado) {
-        alert("Esta chave já foi usada e cancelada!");
+        showToast("Esta chave já foi usada!", "warning");
         return;
       }
 
@@ -1268,7 +1342,7 @@ window.submitRoleSelection = async function(role) {
     } else if (role === 'driver') {
       let rawInput = document.getElementById('rpDriverInput').value.trim();
       if (!rawInput) {
-        alert("Cole o link de convite recebido pelo Administrador.");
+        showToast("Cole o link de convite recebido.", "warning");
         return;
       }
 
@@ -1286,13 +1360,13 @@ window.submitRoleSelection = async function(role) {
       const inviteRef = doc(db, "invites", inviteCode);
       const inviteSnap = await getDoc(inviteRef);
       if (!inviteSnap.exists()) {
-        alert("Código de convite inválido.");
+        showToast("Código de convite inválido.", "error");
         return;
       }
 
       const inviteData = inviteSnap.data();
       if (inviteData.usado) {
-        alert("Este convite já foi utilizado. Peça um novo.");
+        showToast("Este convite já foi utilizado.", "warning");
         return;
       }
 
@@ -1312,27 +1386,16 @@ window.submitRoleSelection = async function(role) {
     document.getElementById('rolePickerModal').classList.remove('active');
     applyRoleUI();
     loadLocations();
-    alert("Perfil configurado com sucesso! Bem-vindo.");
+    showToast("Perfil configurado com sucesso!", "success");
 
   } catch(e) {
     console.error("Erro ao configurar perfil:", e);
-
-    // Mensagem amigável por tipo de erro
-    if (e.code === 'permission-denied' || e.message.includes('permissions')) {
-      alert(
-        "⚠️ Erro de permissão ao configurar perfil.\n\n" +
-        "Solução: Acesse o Firebase Console → Firestore → Rules e adicione a regra abaixo:\n\n" +
-        "allow write: if request.auth != null && request.auth.uid == userId;\n\n" +
-        "Ou entre em contato com o administrador do sistema."
-      );
-    } else {
-      alert("Erro na conversão de perfil: " + e.message);
-    }
+    showToast("Erro na configuração: " + e.message, "error");
   }
 }
 
 window.handleLogout = async function() {
-  if(confirm("Deseja realmente sair?")) {
+  if(await window.showConfirm("Deseja realmente sair?", "Sair da Conta", "🚪")) {
     try {
       if(document.getElementById('rpAdminInput')) document.getElementById('rpAdminInput').value = '';
       if(document.getElementById('rpDriverInput')) document.getElementById('rpDriverInput').value = '';
@@ -1342,7 +1405,7 @@ window.handleLogout = async function() {
       }
       await signOut(auth);
     } catch(e) {
-      alert("Erro ao sair: " + e.message);
+      showToast("Erro ao sair: " + e.message, "error");
     }
   }
 };
@@ -1443,11 +1506,11 @@ window.renderSearchAgenda = function() {
 
 window.deleteLocation = async function(id) {
   if(!currentUser) return;
-  if(confirm("Tem certeza que deseja excluir este local?")) {
+  if(await window.showConfirm("Tem certeza que deseja excluir este local?", "Excluir Local", "📍")) {
     try {
       await deleteDoc(doc(db, "users", currentUser.uid, "locations", id));
     } catch(e) {
-      alert("Erro ao excluir: " + e.message);
+      showToast("Erro ao excluir: " + e.message, "error");
     }
   }
 };
@@ -1458,10 +1521,10 @@ window.saveLocation = async function() {
   let nameInput = document.getElementById('locNameInput').value.trim();
   const editId = document.getElementById('locEditingId').value;
   
-  if(!linkInput) return alert("Por favor, digite um link ou endereço.");
+  if(!linkInput) return showToast("Por favor, digite um link ou endereço.", "warning");
 
   // Validação básica do input
-  if(linkInput.length < 3) return alert("O endereço ou link parece muito curto. Verifique e tente novamente.");
+  if(linkInput.length < 3) return showToast("O endereço ou link parece muito curto.", "warning");
 
   const btn = document.getElementById('locSaveBtn');
   btn.textContent = 'Aguarde...';
@@ -1471,9 +1534,13 @@ window.saveLocation = async function() {
 
   // Tentar resolver via backend (com fallback se estiver offline)
   try {
-    const res = await fetch('http://localhost:3000/api/resolve', {
+    const idToken = await auth.currentUser.getIdToken();
+    const res = await fetch(`${CONFIG.apiUrl}/api/resolve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
       body: JSON.stringify({ url: linkInput })
     });
     
@@ -1487,7 +1554,7 @@ window.saveLocation = async function() {
       };
     }
   } catch(e) {
-    console.warn("Backend offline — salvando endereço diretamente.", e.message);
+    console.warn("Backend offline ou erro na resolução — salvando endereço diretamente.", e.message);
     // Fallback: salvar com o input bruto (sem resolução de link)
     resolvedData.name = nameInput || "Local Adicionado";
   }
@@ -1514,7 +1581,7 @@ window.saveLocation = async function() {
     closeLocModal();
   } catch(e) {
     console.error(e);
-    alert("Falha ao salvar local. Detalhes: " + e.message);
+    showToast("Falha ao salvar local. Detalhes: " + e.message, "error");
   } finally {
     btn.textContent = 'Salvar Local';
     btn.style.pointerEvents = 'auto';
@@ -1654,7 +1721,7 @@ function loadLocations() {
 
       // Dashboard
       if(data.polyline) {
-        const apiKey = firebaseConfig.apiKey;
+        const apiKey = CONFIG.firebase.apiKey;
         const poly = encodeURIComponent(data.polyline);
         const staticImgUrl = `https://maps.googleapis.com/maps/api/staticmap?size=440x280&path=color:0x4285F4|weight:4|enc:${poly}&key=${apiKey}`;
         
@@ -1721,7 +1788,7 @@ window.openBuilderModal = function() {
 
 window.showDriverSelectionStage = function() {
   if (builderSelectedPoints.length === 0) {
-    return alert("Adicione pelo menos um local à rota antes de escolher o motorista.");
+    return showToast("Adicione pelo menos um local à rota antes de escolher o motorista.", "error");
   }
   
   const stage1 = document.getElementById('builderStage1');
@@ -1916,13 +1983,13 @@ window.generateManualRoute = async function() {
 
   try {
     if(!currentUser) {
-      alert("Aguarde a autenticação conectar ou faça login novamente.");
+      showToast("Aguarde a autenticação ou faça login novamente.", "warning");
       resetBtn();
       return;
     }
 
     if(builderSelectedPoints.length < 1) {
-      alert("Selecione pelo menos 1 ponto.");
+      showToast("Selecione pelo menos 1 ponto para a rota.", "warning");
       resetBtn();
       return;
     }
@@ -1992,8 +2059,7 @@ window.generateManualRoute = async function() {
     if(builderModal) builderModal.classList.remove('active');
 
     if (targetDriverName) {
-      // Enviou para um motorista
-      alert(`✅ Rota enviada com sucesso para ${targetDriverName}!\n\n📍 ${builderSelectedPoints.length} parada(s)\n🔗 O motorista já pode ver a missão no painel.`);
+      showToast(`Rota enviada para ${targetDriverName} (${builderSelectedPoints.length} paradas)`, 'success');
     }
 
     // 4) [REMOVIDO] Deduzir peso e valor da meta mensal (agora é deduzido apenas na finalização pelo motorista)
@@ -2007,7 +2073,7 @@ window.generateManualRoute = async function() {
 
   } catch (err) {
     console.error("Erro ao salvar rota:", err);
-    alert("Erro ao salvar a rota: " + err.message);
+    showToast("Erro ao salvar a rota: " + err.message, "error");
     resetBtn();
   }
 };
@@ -2050,7 +2116,7 @@ window.openRouteFromCard = function(evt) {
     window.open(routeUrl, '_blank');
   } 
   else {
-    alert("Nenhuma rota ativa no momento!");
+    showToast("Nenhuma rota ativa no momento!", "warning");
   }
 };
 
@@ -2060,7 +2126,7 @@ window.handleDailyCardClick = function() {
     window.openFleetPanel();
   } else {
     if (!window.activeRouteData) {
-      alert("Nenhuma rota ativa no momento!");
+      showToast("Nenhuma rota ativa no momento!", "warning");
       return;
     }
     window.openDriverDailyRouteModal();
@@ -2165,11 +2231,11 @@ window.renderDriverDailyRoutePoints = function() {
 
 window.startDriverDailyRoute = function() {
   if (!window.activeRouteId) {
-    alert("Erro: ID da rota perdido.");
+    showToast("Erro: ID da rota não encontrado.", "error");
     return;
   }
   if (!window.tempDriverRouteSequence || window.tempDriverRouteSequence.length === 0) {
-    alert("Nenhum ponto para rotear.");
+    showToast("Nenhum ponto selecionado para rotear.", "warning");
     return;
   }
 
@@ -2684,14 +2750,14 @@ window.fpMoveSchedPoint = function(index, direction) {
 // Salvar rota agendada no Firestore
 window.fpSaveScheduledRoute = async function() {
   const driverUid = window._fpCurrentDriverUid;
-  if (!driverUid) return alert("Nenhum motorista selecionado.");
+  if (!driverUid) return showToast("Nenhum motorista selecionado.", "error");
 
   const dateVal = document.getElementById('schedDate').value;
   const timeVal = document.getElementById('schedTime').value;
   const note = document.getElementById('schedNote').value.trim();
 
-  if (!dateVal) return alert("Selecione uma data para o envio.");
-  if (window._fpSchedulePoints.length < 1) return alert("Adicione pelo menos 1 ponto à rota.");
+  if (!dateVal) return showToast("Selecione uma data para o envio.", "error");
+  if (window._fpSchedulePoints.length < 1) return showToast("Adicione pelo menos 1 ponto à rota.", "error");
 
   const btn = document.getElementById('schedSaveBtn');
   btn.textContent = '⏳ Salvando...';
@@ -2738,7 +2804,7 @@ window.fpSaveScheduledRoute = async function() {
 
   } catch(e) {
     console.error("Erro ao agendar rota:", e);
-    alert("Erro ao agendar rota: " + e.message);
+    showToast("Erro ao agendar rota: " + e.message, "error");
     btn.textContent = '📅 Agendar Rota';
     btn.style.pointerEvents = 'auto';
     btn.style.opacity = '1';
@@ -2750,12 +2816,12 @@ window.fpSendScheduledNow = async function(schedId) {
   const driverUid = window._fpCurrentDriverUid;
   if (!driverUid) return;
 
-  if (!confirm("Deseja enviar essa rota agora para o motorista?")) return;
+  if (!(await window.showConfirm("Deseja enviar essa rota agora para o motorista?", "Enviar Rota", "🚚"))) return;
 
   try {
     const schedRef = doc(db, "users", driverUid, "scheduledRoutes", schedId);
     const schedSnap = await getDoc(schedRef);
-    if (!schedSnap.exists() || schedSnap.data().status !== "scheduled") return alert("Rota agendada já enviada ou não encontrada.");
+    if (!schedSnap.exists() || schedSnap.data().status !== "scheduled") return showToast("Rota agendada já enviada ou não encontrada.", "error");
 
     const data = schedSnap.data();
 
@@ -2784,10 +2850,10 @@ window.fpSendScheduledNow = async function(schedId) {
     // Tentar calcular detalhes e trajeto em BACKGROUND via OSRM
     window.calculateOSRMBackground(newRouteRef, routeData.points);
 
-    alert("✅ Rota enviada com sucesso para " + window._fpCurrentDriverName + "!");
+    showToast("✅ Rota enviada com sucesso para " + window._fpCurrentDriverName + "!", "success");
   } catch(e) {
     console.error("Erro ao enviar rota:", e);
-    alert("Erro ao enviar: " + e.message);
+    showToast("Erro ao enviar: " + e.message, "error");
   }
 };
 
@@ -3047,12 +3113,12 @@ window.fpDeleteScheduled = async function(schedId) {
   const driverUid = window._fpCurrentDriverUid;
   if (!driverUid) return;
 
-  if (!confirm("Deseja excluir esta rota agendada?")) return;
+  if (!(await window.showConfirm("Deseja excluir esta rota agendada?", "Excluir Agendamento", "🗑️"))) return;
 
   try {
     await deleteDoc(doc(db, "users", driverUid, "scheduledRoutes", schedId));
   } catch(e) {
-    alert("Erro ao excluir: " + e.message);
+    showToast("Erro ao excluir: " + e.message, "error");
   }
 };
 
@@ -3072,7 +3138,7 @@ window.fpOpenEditSchedule = async function(schedId, driverUid) {
   try {
     const schedRef = doc(db, "users", window._editSchedDriverUid, "scheduledRoutes", schedId);
     const schedSnap = await getDoc(schedRef);
-    if (!schedSnap.exists()) return alert("Agendamento não encontrado.");
+    if (!schedSnap.exists()) return showToast("Agendamento não encontrado.", "error");
 
     const data = schedSnap.data();
     window._editSchedPoints = (data.points || []).map((p, i) => ({
@@ -3112,7 +3178,7 @@ window.fpOpenEditSchedule = async function(schedId, driverUid) {
     document.getElementById('editScheduledRouteModal').classList.add('active');
   } catch(e) {
     console.error("Erro ao abrir edição:", e);
-    alert("Erro ao abrir agendamento: " + e.message);
+    showToast("Erro ao abrir agendamento: " + e.message, "error");
   }
 };
 
@@ -3222,7 +3288,7 @@ window.fpFilterEditSchedLocations = function() {
 };
 
 window.fpSaveEditSchedule = async function() {
-  if (window._editSchedPoints.length < 1) return alert("Adicione pelo menos 1 parada.");
+  if (window._editSchedPoints.length < 1) return showToast("Adicione pelo menos 1 parada.", "error");
 
   const btn = document.getElementById('editSchedSaveBtn');
   btn.textContent = '⏳ Salvando...';
@@ -3254,7 +3320,7 @@ window.fpSaveEditSchedule = async function() {
     }, 1000);
   } catch(e) {
     console.error("Erro ao salvar edição:", e);
-    alert("Erro ao salvar: " + e.message);
+    showToast("Erro ao salvar: " + e.message, "error");
     btn.textContent = '💾 Salvar Alterações';
     btn.style.pointerEvents = 'auto';
   }
@@ -3351,7 +3417,7 @@ window.sendDriverInvite = async function() {
     window._lastInviteLink = inviteLink;
     window.copyInviteLink(sendBtn); // Pass the button directly
   } catch(e) {
-    alert("Erro ao gerar convite: " + e.message);
+    showToast("Erro ao gerar convite: " + e.message, "error");
     sendBtn.textContent = "🔗 Gerar Link e Copiar";
     sendBtn.style.pointerEvents = "auto";
   }
@@ -3445,7 +3511,7 @@ window.saveDriverName = async function(driverUid, btn) {
   if (!input) return;
   const novoNome = input.value.trim();
   
-  if (!novoNome) return alert("O nome não pode ser vazio.");
+  if (!novoNome) return showToast("O nome não pode ser vazio.", "error");
 
   btn.textContent = '...';
   btn.style.pointerEvents = 'none';
@@ -3476,7 +3542,7 @@ window.saveDriverName = async function(driverUid, btn) {
       renderFleetDriverCards();
     }
 
-    // 4. If Live Spy (Espionar ao Vivo) is open, refresh driver pills/markers immediately
+    // 4. If Monitor (Visualizar Motoristas) is open, refresh driver pills/markers immediately
     const liveSpyModalEl = document.getElementById('liveSpyModal');
     if (liveSpyModalEl && liveSpyModalEl.classList.contains('active') && window._spyRefresh) {
       window._spyRefresh();
@@ -3511,7 +3577,7 @@ window.renameDriver = async function(driverUid, oldName) {
   
   try {
     const trimmedName = newName.trim();
-    if (!trimmedName) return alert("O nome não pode ser vazio.");
+    if (!trimmedName) return showToast("O nome não pode ser vazio.", "error");
     await updateDoc(doc(db, "users", driverUid), { nome: trimmedName });
 
     // 1. Update in-memory _fleetDrivers cache
@@ -3526,26 +3592,26 @@ window.renameDriver = async function(driverUid, oldName) {
       renderFleetDriverCards();
     }
 
-    // 3. If Live Spy (Espionar ao Vivo) is open, refresh driver pills/markers immediately
+    // 3. If Monitor (Visualizar Motoristas) is open, refresh driver pills/markers immediately
     const liveSpyEl = document.getElementById('liveSpyModal');
     if (liveSpyEl && liveSpyEl.classList.contains('active') && window._spyRefresh) {
       window._spyRefresh();
     }
 
     // NOTE: Admin Hub (Monitorar ao Vivo) auto-updates via its existing onSnapshot.
-    alert("Nome atualizado com sucesso!");
+    showToast("Nome atualizado com sucesso!", "success");
   } catch(e) {
-    alert("Erro ao atualizar nome: " + e.message);
+    showToast("Erro ao atualizar nome: " + e.message, "error");
   }
 };
 
 window.deleteDriver = async function(driverUid, name) {
   if (!checkRole('admin')) return;
   
-  const confirm1 = confirm(`🚨 ATENÇÃO: Você está prestes a EXCLUIR permanentemente o perfil de "${name}" do sistema.\n\nEsta ação removerá o acesso dele e seus dados de cadastro. Deseja continuar?`);
+  const confirm1 = await window.showConfirm(`🚨 ATENÇÃO: Você está prestes a EXCLUIR permanentemente o perfil de "${name}" do sistema.\n\nEsta ação removerá o acesso dele e seus dados de cadastro. Deseja continuar?`, "Exclusão Crítica", "🚨");
   if (!confirm1) return;
   
-  const confirm2 = confirm(`⚠️ Confirmação Final: Confirmar exclusão definitiva de "${name}"?`);
+  const confirm2 = await window.showConfirm(`⚠️ Confirmação Final: Confirmar exclusão definitiva de "${name}"?`, "Confirmação Final", "⚠️");
   if (!confirm2) return;
   
   try {
@@ -3559,10 +3625,10 @@ window.deleteDriver = async function(driverUid, name) {
       await rtdbRemove(rtdbRef(rtdb, `locations/${adminKey}/${driverUid}`));
     }
 
-    alert(`✅ Perfil de "${name}" excluído com sucesso.`);
+    showToast(`✅ Perfil de "${name}" excluído com sucesso.`, "success");
   } catch(e) {
     console.error("Erro ao excluir motorista:", e);
-    alert("Erro ao excluir motorista: " + e.message);
+    showToast("Erro ao excluir motorista: " + e.message, "error");
   }
 };
 
@@ -3664,7 +3730,7 @@ async function loadAdminHubData() {
               Pendente: Sem histórico recente
             </div>
             <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-top:10px;">
-              <button onclick="window.closeAdminHub(); window.openLiveSpy('${driverId}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; background:var(--pr-blue-dark);">Espionar</button>
+              <button onclick="window.closeAdminHub(); window.openLiveSpy('${driverId}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; background:var(--pr-blue-dark);">Visualizar</button>
               <button onclick="window.openDriverStats('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px;">Desempenho</button>
               <button onclick="window.deleteDriver('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; background:#e74c3c; border-color:#c0392b;">Excluir</button>
             </div>
@@ -3705,7 +3771,7 @@ async function loadAdminHubData() {
             </div>
 
             <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-top:10px;">
-              <button onclick="window.closeAdminHub(); window.openLiveSpy('${driverId}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; background:var(--pr-blue-dark);">Espionar</button>
+              <button onclick="window.closeAdminHub(); window.openLiveSpy('${driverId}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; background:var(--pr-blue-dark);">Visualizar</button>
               <button onclick="window.openDriverStats('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px;">Desempenho</button>
               <button onclick="window.deleteDriver('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; background:#e74c3c; border-color:#c0392b;">Excluir</button>
             </div>
@@ -4246,64 +4312,105 @@ const _spyRoleCheckInterval = setInterval(() => {
     }
   };
 
+  let _spyLastUids = "";
+
   function updateDriverPills(driversData) {
     const bar = document.getElementById('spy-driver-bar');
     if (!bar) return;
-    bar.innerHTML = '';
 
     const entries = Object.entries(driversData).filter(([uid]) => {
       return (window._fleetDrivers || []).some(d => d.uid === uid);
     });
 
     if (entries.length === 0) {
+      _spyLastUids = "";
       bar.innerHTML = '<span style="font-size:11px;color:var(--pr-text-muted);">Nenhum motorista online agora</span>';
       document.getElementById('spy-status-txt').textContent = 'Nenhum motorista online';
       return;
     }
 
+    const currentUids = entries.map(e => e[0]).sort().join(",");
     document.getElementById('spy-status-txt').textContent = `${entries.length} motorista${entries.length > 1 ? 's' : ''} online`;
 
-    entries.forEach(([uid, data], i) => {
-      const color = colorForIndex(i);
-      // Use the fresh Firestore name (from cache)
-      const cachedDriver = (window._fleetDrivers || []).find(d => d.uid === uid);
-      const name = (cachedDriver && (cachedDriver.nome)) || data.name || 'Motorista';
-      const initial = name.charAt(0).toUpperCase();
-      const speed = data.speed || 0;
-      const ago = timeAgo(data.ts || Date.now());
-      const isSelected = spyCenterUid === uid;
+    // Incremental update: If the set of drivers is the same, only update values to keep the animation smooth
+    if (currentUids === _spyLastUids) {
+      entries.forEach(([uid, data]) => {
+        const speedEls = document.querySelectorAll(`.spy-speed-${uid}`);
+        const agoEls = document.querySelectorAll(`.spy-ago-${uid}`);
+        const speed = data.speed || 0;
+        const ago = timeAgo(data.ts || Date.now());
+        
+        speedEls.forEach(el => el.textContent = `${speed} km/h`);
+        agoEls.forEach(el => el.textContent = ago);
+      });
+      return;
+    }
 
-      const nearest = data.nearestStop;
-      const nearestText = nearest ? `<div style="font-size:9px;color:${color};font-weight:700;margin-top:2px;">Próximo: ${nearest.name} (${nearest.distance}km)</div>` : '';
+    _spyLastUids = currentUids;
+    bar.innerHTML = '';
 
-      const pill = document.createElement('button');
-      pill.style.cssText = `
-        display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:20px;
-        border:1.5px solid ${isSelected ? color : 'var(--pr-border)'};
-        background:${isSelected ? color + '22' : 'var(--pr-bg)'};
-        cursor:pointer;white-space:nowrap;flex-shrink:0;font-family:var(--font-main);
-        transition:all 0.15s;
-      `;
-      pill.innerHTML = `
-        <div style="width:22px;height:22px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;">
-          <span style="font-size:11px;font-weight:800;color:#fff;">${initial}</span>
-        </div>
-        <div>
-          <div style="font-size:11px;font-weight:700;color:var(--pr-text);">${escapeHTML(name)}</div>
-          <div style="font-size:10px;color:var(--pr-text-muted);">${speed} km/h · ${ago}</div>
-          ${nearestText}
-        </div>
-      `;
-      pill.onclick = () => {
-        spyCenterUid = uid;
-        if (spyMap && data.lat && data.lng) {
-          spyMap.flyTo([data.lat, data.lng], 16);
-          if (data.missionId) window.drawSpyRoute(uid, data.missionId, color);
-        }
-        updateDriverPills(driversData);
-      };
-      bar.appendChild(pill);
-    });
+    const track = document.createElement('div');
+    track.className = 'spy-driver-track';
+    
+    // Only loop if there's more than one driver
+    const shouldLoop = entries.length > 1;
+    const loops = shouldLoop ? 3 : 1;
+    
+    if (shouldLoop) {
+      const duration = Math.max(30, entries.length * 8); 
+      track.style.animation = `spyInfiniteScroll ${duration}s linear infinite`;
+    } else {
+      track.style.animation = 'none';
+      track.style.justifyContent = 'center';
+    }
+
+    for (let loop = 0; loop < loops; loop++) {
+      entries.forEach(([uid, data], i) => {
+        const color = colorForIndex(i);
+        const cachedDriver = (window._fleetDrivers || []).find(d => d.uid === uid);
+        const name = (cachedDriver && (cachedDriver.nome)) || data.name || 'Motorista';
+        const initial = name.charAt(0).toUpperCase();
+        const speed = data.speed || 0;
+        const ago = timeAgo(data.ts || Date.now());
+        const isSelected = spyCenterUid === uid;
+
+        const nearest = data.nearestStop;
+        const nearestText = nearest ? `<div style="font-size:9px;color:${color};font-weight:700;margin-top:2px;">Próximo: ${nearest.name} (${nearest.distance}km)</div>` : '';
+
+        const pill = document.createElement('button');
+        pill.className = 'spy-pill';
+        pill.style.cssText = `
+          display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:20px;
+          border:1.5px solid ${isSelected ? color : 'var(--pr-border)'};
+          background:${isSelected ? color + '22' : 'var(--pr-bg)'};
+          cursor:pointer;white-space:nowrap;flex-shrink:0;font-family:var(--font-main);
+          transition:all 0.15s;
+        `;
+        pill.innerHTML = `
+          <div style="width:22px;height:22px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;">
+            <span style="font-size:11px;font-weight:800;color:#fff;">${initial}</span>
+          </div>
+          <div style="text-align: left;">
+            <div style="font-size:11px;font-weight:700;color:var(--pr-text);">${escapeHTML(name)}</div>
+            <div style="font-size:10px;color:var(--pr-text-muted);">
+              <span class="spy-speed-${uid}">${speed} km/h</span> · <span class="spy-ago-${uid}">${ago}</span>
+            </div>
+            ${nearestText}
+          </div>
+        `;
+        pill.onclick = () => {
+          spyCenterUid = uid;
+          if (spyMap && data.lat && data.lng) {
+            spyMap.flyTo([data.lat, data.lng], 16);
+            if (data.missionId) window.drawSpyRoute(uid, data.missionId, color);
+          }
+          updateDriverPills(driversData);
+        };
+        track.appendChild(pill);
+      });
+    }
+    
+    bar.appendChild(track);
   }
 
   function updateDriverMarkers(driversData) {
@@ -4521,7 +4628,7 @@ const _spyRoleCheckInterval = setInterval(() => {
   // ── Abrir / Fechar modal ──────────────────────────────────
   window.openMonthlyGoalsModal = async function() {
     if (window.userRole !== 'admin') {
-      alert('Apenas administradores podem acessar as metas mensais.');
+      showToast('Apenas administradores podem acessar as metas mensais.', 'error');
       return;
     }
     const modal = document.getElementById('monthlyGoalsModal');
@@ -4612,12 +4719,12 @@ const _spyRoleCheckInterval = setInterval(() => {
     const revGoal    = getNum('mgRevGoal');
 
     if (!cycleStart || !cycleEnd) {
-      alert('Preencha as datas de Início e Término do ciclo.');
+      showToast('Preencha as datas de Início e Término do ciclo.', 'error');
       if (btn) { btn.textContent = '💾 Salvar Meta'; btn.disabled = false; }
       return;
     }
     if (!weightMax || !revGoal) {
-      alert('Preencha a meta de Peso Máximo e Faturamento.');
+      showToast('Preencha a meta de Peso Máximo e Faturamento.', 'error');
       if (btn) { btn.textContent = '💾 Salvar Meta'; btn.disabled = false; }
       return;
     }
@@ -4648,7 +4755,7 @@ const _spyRoleCheckInterval = setInterval(() => {
         updatedAt: serverTimestamp()
       });
 
-      alert('Meta mensal salva com sucesso!');
+      showToast('Meta mensal salva com sucesso!', 'success');
       await loadGoalIntoForm();
 
       // Fechar modal de configuração e abrir dashboard de analytics
@@ -4657,93 +4764,119 @@ const _spyRoleCheckInterval = setInterval(() => {
 
     } catch(e) {
       console.error('[MonthlyGoal] Erro ao salvar:', e);
-      alert('Erro ao salvar meta: ' + e.message);
+      showToast('Erro ao salvar meta: ' + e.message, 'error');
     } finally {
       if (btn) { btn.textContent = '💾 Salvar Meta'; btn.disabled = false; }
     }
   };
 
-  // ── Dashboard de Analytics das Metas ──────────────────────
+  // ── Dashboard de Análise de Metas (V3 - ApexCharts) ──────────────────────
+  let goalCharts = { daily: null, weekly: null, trend: null, gaugeW: null, gaugeV: null };
+
   window.openGoalsDashboard = async function() {
     const panel = document.getElementById('goalsDashboardPanel');
-    const card = document.getElementById('dailyRouteCard');
-    const badge = document.getElementById('pdRouteDetails');
-    const pill = document.getElementById('mapStatsPill');
     if (!panel) return;
     
-    // Fechar painel da frota se estiver aberto
     if (window.closeFleetPanel) window.closeFleetPanel();
 
-    if (card) card.style.display = 'none';
-    if (badge) badge.style.display = 'none';
-    if (pill) pill.style.display = 'none';
+    ['dailyRouteCard', 'pdRouteDetails', 'mapStatsPill'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.style.display = 'none';
+    });
 
     panel.style.display = 'flex';
     
     // 1. Carregar Meta Ativa
     const snap = await getDoc(goalRef());
     if (!snap.exists()) {
-      alert("Nenhuma meta configurada. Configure a meta primeiro.");
+      showToast("Nenhuma meta configurada. Configure a meta primeiro.", "error");
       return;
     }
     const g = snap.data();
     
-    // 2. Calcular Datas do Ciclo
     const startDate = g.cycleStart ? new Date(g.cycleStart + 'T00:00:00') : new Date();
     const endDate = g.cycleEnd ? new Date(g.cycleEnd + 'T23:59:59') : new Date();
-    
-    const fmt = d => d.toLocaleDateString('pt-BR', {day:'2-digit', month:'short'});
-    document.getElementById('gdCycleRange').textContent = `Ciclo: ${fmt(startDate)} → ${fmt(endDate)}`;
 
-    // 3. Progresso Circular (Baseado no acumulado do Firestore)
     const usedW = g.usedWeight || 0;
     const goalW = g.weightMax || 1;
     const usedV = g.usedValue || 0;
     const goalV = g.revGoal || 1;
 
-    const wPct = Math.min(100, (usedW / goalW) * 100);
-    const vPct = Math.min(100, (usedV / goalV) * 100);
-
-    // Atualizar UI Circular
-    const setCircle = (idStroke, idPct, idText, val, total, pct, isMoney) => {
-      const stroke = document.getElementById(idStroke);
-      const pctEl = document.getElementById(idPct);
-      const textEl = document.getElementById(idText);
-      const offset = 339.29 - (339.29 * pct / 100);
-      if (stroke) stroke.style.strokeDashoffset = offset;
-      if (pctEl) pctEl.textContent = `${pct.toFixed(0)}%`;
-      if (textEl) {
-        if (isMoney) textEl.textContent = `R$ ${val.toLocaleString('pt-BR')} / ${total.toLocaleString('pt-BR')}`;
-        else textEl.textContent = `${val.toFixed(1)} / ${total} kg`;
-      }
+    // 2. Footer Stats e Cálculos
+    const now = new Date();
+    const diffDays = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
+    
+    const setStat = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
     };
-    setCircle('gdWeightCircleStroke', 'gdWeightPct', 'gdWeightText', usedW, goalW, wPct, false);
-    setCircle('gdValueCircleStroke', 'gdValuePct', 'gdValueText', usedV, goalV, vPct, true);
+    
+    setStat('heroStatPesoRest', `${Math.max(0, goalW - usedW).toFixed(1)} kg`);
+    setStat('heroStatValRest', `R$ ${Math.max(0, goalV - usedV).toLocaleString('pt-BR')}`);
+    setStat('heroStatDiasRest', diffDays);
 
-    // 4. Buscar Dados para Gráficos de Desempenho
-    await fetchAndRenderPerformance(startDate, endDate);
+    // 3. Renderizar Gauges Iniciais
+    renderGauges(usedW, goalW, usedV, goalV);
+
+    // 4. Buscar e Renderizar Gráficos de Performance
+    await fetchAndRenderPerformanceV3(startDate, endDate);
   };
 
   window.closeGoalsDashboard = function() {
     const panel = document.getElementById('goalsDashboardPanel');
-    const card = document.getElementById('dailyRouteCard');
-    const badge = document.getElementById('pdRouteDetails');
-    const pill = document.getElementById('mapStatsPill');
-
     if (panel) panel.style.display = 'none';
     
-    // Restaurar elementos do mapa se o painel da frota não estiver visível
     const fleetPanel = document.getElementById('fleetPanel');
     const isFleetOpen = fleetPanel && fleetPanel.style.display !== 'none';
     
     if (!isFleetOpen) {
-      if (card) card.style.display = '';
-      if (badge) badge.style.display = '';
-      if (pill) pill.style.display = '';
+      ['dailyRouteCard', 'pdRouteDetails', 'mapStatsPill'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.style.display = '';
+      });
     }
   };
 
-  async function fetchAndRenderPerformance(startDate, endDate) {
+  function renderGauges(usedW, goalW, usedV, goalV) {
+    const commonOptions = (color, label) => ({
+      chart: { height: 180, type: 'radialBar', sparkline: { enabled: true } },
+      plotOptions: {
+        radialBar: {
+          startAngle: -90,
+          endAngle: 90,
+          hollow: { size: '65%' },
+          track: {
+            background: '#e7e7e7',
+            strokeWidth: '97%',
+            margin: 5,
+          },
+          dataLabels: {
+            name: { show: true, color: '#888', fontSize: '11px', offsetY: -10 },
+            value: { offsetY: -5, fontSize: '18px', fontWeight: 700, color: '#333' }
+          }
+        }
+      },
+      colors: [color],
+      labels: [label]
+    });
+
+    const wPct = Math.min(100, (usedW / goalW) * 100);
+    const vPct = Math.min(100, (usedV / goalV) * 100);
+
+    if (goalCharts.gaugeW) goalCharts.gaugeW.destroy();
+    goalCharts.gaugeW = new ApexCharts(document.querySelector("#gaugeWeightChart"), {
+      ...commonOptions('#1A6BAF', 'Peso'),
+      series: [wPct.toFixed(1)]
+    });
+    goalCharts.gaugeW.render();
+
+    if (goalCharts.gaugeV) goalCharts.gaugeV.destroy();
+    goalCharts.gaugeV = new ApexCharts(document.querySelector("#gaugeValueChart"), {
+      ...commonOptions('#27ae60', 'Faturamento'),
+      series: [vPct.toFixed(1)]
+    });
+    goalCharts.gaugeV.render();
+  }
+
+  async function fetchAndRenderPerformanceV3(startDate, endDate) {
     try {
       const driversSnap = await getDocs(collection(db, "users"));
       const driverIds = [];
@@ -4751,6 +4884,7 @@ const _spyRoleCheckInterval = setInterval(() => {
 
       let dailyData = {};
       let weeklyData = [0, 0, 0, 0, 0];
+      let trendData = { concluídas: {}, pendentes: {} };
       let concludedCount = 0;
       let pendingCount = 0;
 
@@ -4774,92 +4908,98 @@ const _spyRoleCheckInterval = setInterval(() => {
             const diffDays = Math.floor((dateObj - startDate) / (1000 * 60 * 60 * 24));
             const weekIdx = Math.floor(diffDays / 7);
             if (weekIdx >= 0 && weekIdx < 5) weeklyData[weekIdx] += weight;
+            trendData.concluídas[dateStr] = (trendData.concluídas[dateStr] || 0) + 1;
           } else {
             pendingCount++;
+            trendData.pendentes[dateStr] = (trendData.pendentes[dateStr] || 0) + 1;
           }
         });
       });
 
       await Promise.all(historyPromises);
 
-      renderDailyChart(dailyData);
-      renderWeeklyChart(weeklyData);
+      // Update UI Counters
+      document.getElementById('heroStatTotalEntregas').textContent = concludedCount;
+      document.getElementById('conclVal').textContent = concludedCount;
+      document.getElementById('pendVal').textContent = pendingCount;
+      
+      const total = (concludedCount + pendingCount) || 1;
+      document.getElementById('conclBar').style.width = (concludedCount / total * 100) + '%';
+      document.getElementById('pendBar').style.width = (pendingCount / total * 100) + '%';
 
-      const totalRoutes = (concludedCount + pendingCount) || 1;
-      const concPct = (concludedCount / totalRoutes) * 100;
-      const pendPct = (pendingCount / totalRoutes) * 100;
-
-      document.getElementById('gdConcludedCount').textContent = concludedCount;
-      document.getElementById('gdPendingCount').textContent = pendingCount;
-      document.getElementById('gdConcludedBar').style.width = concPct + '%';
-      document.getElementById('gdPendingBar').style.width = pendPct + '%';
+      renderDailyChartV3(dailyData);
+      renderWeeklyChartV3(weeklyData);
+      renderTrendChartV3(trendData);
 
     } catch(e) {
-      console.warn('[Dashboard] Erro ao processar performance:', e);
+      console.warn('[Analytics] Erro ao processar:', e);
     }
   }
 
-  function renderDailyChart(dailyData) {
-    const container = document.getElementById('gdDailyChart');
-    const labelsCont = document.getElementById('gdDailyLabels');
-    if (!container) return;
-    container.innerHTML = '';
-    labelsCont.innerHTML = '';
-
+  function renderDailyChartV3(data) {
     const days = [];
+    const values = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      days.push(d.toISOString().split('T')[0]);
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const s = d.toISOString().split('T')[0];
+      days.push(d.toLocaleDateString('pt-BR', {weekday: 'short'}).toUpperCase());
+      values.push((data[s] || 0).toFixed(1));
     }
 
-    const maxWeight = Math.max(...Object.values(dailyData), 100);
+    const options = {
+      series: [{ name: 'Peso (kg)', data: values }],
+      chart: { type: 'bar', height: 200, toolbar: { show: false }, zoom: { enabled: false } },
+      colors: ['#1A6BAF'],
+      plotOptions: { bar: { borderRadius: 4, columnWidth: '50%' } },
+      xaxis: { categories: days, labels: { style: { fontSize: '10px' } } },
+      yaxis: { labels: { style: { fontSize: '10px' } } },
+      dataLabels: { enabled: false },
+      tooltip: { theme: 'dark' }
+    };
 
-    days.forEach(dateStr => {
-      const weight = dailyData[dateStr] || 0;
-      const heightPct = (weight / maxWeight) * 100;
-      const dayName = new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR', {weekday: 'short'}).toUpperCase().replace('.','');
-
-      const bar = document.createElement('div');
-      bar.className = 'gd-bar-container';
-      bar.innerHTML = `
-        <div class="gd-bar" style="height: ${heightPct}%; background: var(--pr-blue-mid);" data-value="${weight.toFixed(0)} kg">
-        </div>
-      `;
-      container.appendChild(bar);
-
-      const lbl = document.createElement('span');
-      lbl.style.cssText = 'font-size:9px; font-weight:700; color:var(--pr-text-muted); width:30px; text-align:center;';
-      lbl.textContent = dayName;
-      labelsCont.appendChild(lbl);
-    });
+    if (goalCharts.daily) goalCharts.daily.destroy();
+    goalCharts.daily = new ApexCharts(document.querySelector("#dailyPerfChart"), options);
+    goalCharts.daily.render();
   }
 
-  function renderWeeklyChart(weeklyData) {
-    const container = document.getElementById('gdWeeklyChart');
-    const labelsCont = document.getElementById('gdWeeklyLabels');
-    if (!container) return;
-    container.innerHTML = '';
-    labelsCont.innerHTML = '';
+  function renderWeeklyChartV3(data) {
+    const options = {
+      series: [{ name: 'Peso (kg)', data: data.map(v => v.toFixed(1)) }],
+      chart: { type: 'bar', height: 200, toolbar: { show: false } },
+      colors: ['#0D3B66'],
+      plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
+      xaxis: { categories: ['SEM 1', 'SEM 2', 'SEM 3', 'SEM 4', 'SEM 5'], labels: { style: { fontSize: '10px' } } },
+      dataLabels: { enabled: false },
+      tooltip: { theme: 'dark' }
+    };
 
-    const maxW = Math.max(...weeklyData, 500);
+    if (goalCharts.weekly) goalCharts.weekly.destroy();
+    goalCharts.weekly = new ApexCharts(document.querySelector("#weeklyPerfChart"), options);
+    goalCharts.weekly.render();
+  }
 
-    weeklyData.forEach((weight, i) => {
-      const heightPct = (weight / maxW) * 100;
-      const bar = document.createElement('div');
-      bar.className = 'gd-bar-container';
-      bar.style.flex = '1';
-      bar.innerHTML = `
-        <div class="gd-bar" style="height: ${heightPct}%; background: var(--pr-blue-dark); border-radius: 4px 4px 0 0;" data-value="SEM ${i+1}: ${weight.toFixed(0)} kg">
-        </div>
-      `;
-      container.appendChild(bar);
+  function renderTrendChartV3(trend) {
+    const allDates = Object.keys({...trend.concluídas, ...trend.pendentes}).sort();
+    const categories = allDates.map(d => d.split('-').slice(1).reverse().join('/'));
 
-      const lbl = document.createElement('span');
-      lbl.style.cssText = 'font-size:9px; font-weight:700; color:var(--pr-text-muted); flex:1; text-align:center;';
-      lbl.textContent = `SEM ${i+1}`;
-      labelsCont.appendChild(lbl);
-    });
+    const options = {
+      series: [
+        { name: 'Concluídas', data: allDates.map(d => trend.concluídas[d] || 0) },
+        { name: 'Pendentes', data: allDates.map(d => trend.pendentes[d] || 0) }
+      ],
+      chart: { type: 'line', height: 160, toolbar: { show: false }, background: 'transparent' },
+      stroke: { curve: 'smooth', width: 3 },
+      colors: ['#1A6BAF', '#e67e22'],
+      markers: { size: 4 },
+      xaxis: { categories: categories, labels: { style: { fontSize: '9px' } } },
+      yaxis: { labels: { style: { fontSize: '9px' } } },
+      legend: { show: false },
+      grid: { borderColor: '#f1f1f1' }
+    };
+
+    if (goalCharts.trend) goalCharts.trend.destroy();
+    goalCharts.trend = new ApexCharts(document.querySelector("#statusTrendChart"), options);
+    goalCharts.trend.render();
   }
 
   // ── Deduzir peso e valor da meta ativa ───────────────────

@@ -44,58 +44,36 @@ service cloud.firestore {
       allow read: if isAuth() && (
         request.auth.uid == userId ||
         isAdminOf(resource.data.get('companyId', null)) ||
-        // Fallback: admin lê motorista com adminId = companyId do admin (conta antiga sem companyId)
         (isAdmin() && resource.data.get('adminId', null) == myCompany())
       );
 
-      // Cria: apenas o próprio documento
-      allow create: if isAuth() && request.auth.uid == userId;
+      // Cria: apenas o próprio documento com campos iniciais seguros
+      allow create: if isAuth() && 
+        request.auth.uid == userId && 
+        request.resource.data.role in ['pending', 'driver'];
 
       // Atualiza: próprio doc OU admin gerencia motoristas
       allow update: if isAuth() && (
-        // Próprio usuário atualiza seu documento (segurança simplificada para resolver bug de criação de frota)
+        // Próprio usuário atualiza seu documento
         (request.auth.uid == userId && (
-          request.resource.data.get('role','') != 'admin' ||
-          resource.data.get('role','') == 'admin' ||
-          resource.data.get('role', 'pending') == 'pending' ||
-          'adminKey' in request.resource.data
+          // NÃO permite mudar o próprio role para admin
+          (request.resource.data.get('role', resource.data.role) == resource.data.get('role', 'pending') || 
+           request.resource.data.get('role', '') != 'admin') &&
+          // Permite outros campos (nome, etc)
+          (!('companyId' in request.resource.data) || request.resource.data.companyId == resource.data.get('companyId', null))
         )) ||
         // Admin tem controle total sobre motoristas da sua empresa
         isAdminOf(resource.data.get('companyId', null)) ||
-        // Fallback: admin de empresa antiga (sem companyId no motorista, usa adminId)
         (isAdmin() && resource.data.get('adminId', null) == myCompany())
       );
 
-      // Deleta motorista: admin da mesma empresa
-      allow delete: if isAuth() && (
-        isAdminOf(resource.data.get('companyId', null)) ||
-        (isAdmin() && resource.data.get('adminId', null) == myCompany())
-      );
+      allow delete: if isAuth() && isAdminOf(resource.data.get('companyId', null));
 
-      // ── Histórico de rotas ──────────────────────────────────
-      match /history/{routeId} {
+      // ── Sub-coleções ────────────────────────────────────────
+      match /{allSubcollections=**} {
         allow read, write: if isAuth() && (
           request.auth.uid == userId ||
-          isAdminOf(get(/databases/$(database)/documents/users/$(userId)).data.get('companyId', null)) ||
-          (isAdmin() && get(/databases/$(database)/documents/users/$(userId)).data.get('adminId', null) == myCompany())
-        );
-      }
-
-      // ── Rotas agendadas ─────────────────────────────────────
-      match /scheduledRoutes/{routeId} {
-        allow read, write: if isAuth() && (
-          request.auth.uid == userId ||
-          isAdminOf(get(/databases/$(database)/documents/users/$(userId)).data.get('companyId', null)) ||
-          (isAdmin() && get(/databases/$(database)/documents/users/$(userId)).data.get('adminId', null) == myCompany())
-        );
-      }
-
-      // ── Localizações/Endereços do motorista ─────────────────
-      match /locations/{locId} {
-        allow read, write: if isAuth() && (
-          request.auth.uid == userId ||
-          isAdminOf(get(/databases/$(database)/documents/users/$(userId)).data.get('companyId', null)) ||
-          (isAdmin() && get(/databases/$(database)/documents/users/$(userId)).data.get('adminId', null) == myCompany())
+          isAdminOf(get(/databases/$(database)/documents/users/$(userId)).data.get('companyId', null))
         );
       }
     }
@@ -104,63 +82,40 @@ service cloud.firestore {
     // CONVITES DE MOTORISTA
     // ═══════════════════════════════════════════════════════════
     match /invites/{inviteId} {
+      // Apenas admin da empresa ou o motorista que conhece o ID pode ler (get)
+      // Listagem (list) negada para evitar varredura
+      allow get: if isAuth();
+      allow list: if isAuth() && isAdmin(); 
 
-      // Qualquer autenticado lê (motorista precisa validar o código)
-      allow read: if isAuth();
-
-      // Admin cria convite para sua empresa
-      allow create: if isAuth() && isAdmin() && (
-        request.resource.data.get('companyId', null) == myCompany() ||
-        // Fallback: convite sem companyId salvo ainda (conta antiga)
-        request.resource.data.get('adminId', null) == myCompany()
-      );
-
-      // Atualiza: admin da empresa OU motorista marca como usado
+      allow create: if isAuth() && isAdmin() && request.resource.data.companyId == myCompany();
       allow update: if isAuth() && (
         isAdminOf(resource.data.get('companyId', null)) ||
-        (isAdmin() && resource.data.get('adminId', null) == myCompany()) ||
-        // Motorista apenas marca como usado
         (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado', 'usedBy']) &&
-          request.resource.data.get('usado', false) == true
+          request.resource.data.get('usado', false) == true &&
+          request.resource.data.get('usedBy', '') == request.auth.uid
         )
       );
-
-      // Deleta: admin da empresa
-      allow delete: if isAuth() && (
-        isAdminOf(resource.data.get('companyId', null)) ||
-        (isAdmin() && resource.data.get('adminId', null) == myCompany())
-      );
+      allow delete: if isAuth() && isAdminOf(resource.data.get('companyId', null));
     }
 
     // ═══════════════════════════════════════════════════════════
     // CHAVES DE CO-ADMIN
-    // Cada admin pode gerar e gerenciar chaves da sua empresa
     // ═══════════════════════════════════════════════════════════
     match /admin_keys/{keyId} {
+      // Apenas get individual (conhecendo a chave). Listagem proibida.
+      allow get: if isAuth();
+      allow list: if isAuth() && isAdmin();
 
-      // Qualquer autenticado lê (para validar a chave)
-      allow read: if isAuth();
-
-      // Admin cria chave para sua empresa
-      allow create: if isAuth() && isAdmin() && (
-        request.resource.data.get('companyId', null) == myCompany() ||
-        // Fallback: admin sem companyId salvo ainda
-        request.resource.data.get('createdBy', null) == request.auth.uid
-      );
-
-      // Atualiza: admin da empresa OU queima de chave (batch atômico)
+      allow create: if isAuth() && isAdmin() && request.resource.data.companyId == myCompany();
       allow update: if isAuth() && (
         isAdminOf(resource.data.get('companyId', null)) ||
-        (isAdmin() && resource.data.get('createdBy', null) == request.auth.uid) ||
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado', 'usedBy'])
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado', 'usedBy']) &&
+          request.resource.data.get('usedBy', '') == request.auth.uid
+        )
       );
-
-      // Deleta: admin da empresa
-      allow delete: if isAuth() && (
-        isAdminOf(resource.data.get('companyId', null)) ||
-        (isAdmin() && resource.data.get('createdBy', null) == request.auth.uid)
-      );
+      allow delete: if isAuth() && isAdminOf(resource.data.get('companyId', null));
     }
 
     // ═══════════════════════════════════════════════════════════

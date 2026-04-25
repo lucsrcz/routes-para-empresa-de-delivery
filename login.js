@@ -1,18 +1,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+import CONFIG from "./config.js";
 
-const firebaseConfig = {
-  projectId: "rotas-cabun-app",
-  appId: "1:1017676204969:web:226223216f8dde86a752b8",
-  storageBucket: "rotas-cabun-app.firebasestorage.app",
-  apiKey: "AIzaSyCwFuaNuzw50bn9CV2RnP3xTx8TNcFr6D4",
-  authDomain: "rotas-cabun-app.firebaseapp.com",
-  messagingSenderId: "1017676204969",
-  measurementId: "G-YDQLXK9YHY"
-};
-
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(CONFIG.firebase);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
