@@ -3419,6 +3419,12 @@ window.saveDriverNickname = async function(driverUid, btn) {
       renderFleetDriverCards();
     }
 
+    // 4. If Live Spy (Espionar ao Vivo) is open, refresh driver pills/markers immediately
+    const liveSpyModalEl = document.getElementById('liveSpyModal');
+    if (liveSpyModalEl && liveSpyModalEl.classList.contains('active') && window._spyRefresh) {
+      window._spyRefresh();
+    }
+
     // NOTE: Admin Hub (Monitorar ao Vivo) auto-updates via its existing onSnapshot.
     // Also refresh the builder driver cards
     applyRoleUI();
@@ -3460,6 +3466,12 @@ window.renameDriver = async function(driverUid, oldName) {
     const fleetPanel = document.getElementById('fleetPanel');
     if (fleetPanel && fleetPanel.style.display !== 'none') {
       renderFleetDriverCards();
+    }
+
+    // 3. If Live Spy (Espionar ao Vivo) is open, refresh driver pills/markers immediately
+    const liveSpyEl = document.getElementById('liveSpyModal');
+    if (liveSpyEl && liveSpyEl.classList.contains('active') && window._spyRefresh) {
+      window._spyRefresh();
     }
 
     // NOTE: Admin Hub (Monitorar ao Vivo) auto-updates via its existing onSnapshot.
@@ -4229,7 +4241,9 @@ const _spyRoleCheckInterval = setInterval(() => {
 
     entries.forEach(([uid, data], i) => {
       const color = colorForIndex(i);
-      const name = data.name || 'Motorista';
+      // Prefer the fresh Firestore name (from cache) over stale RTDB name
+      const cachedDriver = (window._fleetDrivers || []).find(d => d.uid === uid);
+      const name = (cachedDriver && (cachedDriver.apelido || cachedDriver.nome)) || data.name || 'Motorista';
       const initial = name.charAt(0).toUpperCase();
       const speed = data.speed || 0;
       const ago = timeAgo(data.ts || Date.now());
@@ -4284,7 +4298,9 @@ const _spyRoleCheckInterval = setInterval(() => {
       if (!data.lat || !data.lng) return;
       const pos = [data.lat, data.lng];
       const color = colorForIndex(i);
-      const name = data.name || 'Motorista';
+      // Prefer the fresh Firestore name (from cache) over stale RTDB name
+      const cachedDriver2 = (window._fleetDrivers || []).find(d => d.uid === uid);
+      const name = (cachedDriver2 && (cachedDriver2.apelido || cachedDriver2.nome)) || data.name || 'Motorista';
       const initial = name.charAt(0).toUpperCase();
       const speed = data.speed || 0;
       const ago = timeAgo(data.ts || Date.now());
