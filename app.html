@@ -71,10 +71,8 @@
         </div>
       </div>
       <button class="mode-btn" onclick="toggleAppTheme()">☀ / ☾</button>
-      <div class="nav-av" onclick="handleLogout()" title="Sair da Conta" style="cursor: pointer; display: flex; align-items: center; justify-content: center; background: transparent; color: #fff;">
-        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line>
-        </svg>
+      <div class="nav-av" id="navAvatar" onclick="window.openProfileModal()" title="Perfil do Usuário" style="cursor: pointer;">
+        --
       </div>
     </div>
   </nav>
@@ -293,7 +291,7 @@
 
     <div class="daily-route-card" id="dailyRouteCard" style="cursor:pointer; margin-top: 30px;" onclick="window.handleDailyCardClick()">
       <div class="drc-preview" style="position:relative; background-color: var(--pr-bg);">
-        <img src="capa.png" id="drcPreviewImg" alt="Capa Rota" style="width: 100%; height: 100%; object-fit: cover; transform: translateX(5px) scale(0.92);">
+        <img src="capa.png" id="drcPreviewImg" alt="Capa Rota" style="width: 100%; height: 100%; object-fit: contain;">
       </div>
       <div class="drc-content">
         <div class="drc-info">
@@ -1157,7 +1155,7 @@
     </div>
 
     <!-- Map -->
-    <div id="spy-map" style="flex:1;background:#0a0a0a;"></div>
+    <div id="spy-map" style="flex:1;background:#f0f0f0;"></div>
 
     <!-- Footer -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--pr-border);flex-shrink:0;">
@@ -1445,6 +1443,35 @@
     <div style="padding:14px 20px;border-top:1px solid var(--pr-border);display:flex;gap:10px;flex-shrink:0;">
       <button class="mbtn mbtn-cancel" onclick="window.closeMonthlyGoalsModal()" style="flex:0 0 auto;padding:10px 18px;font-size:12px;">Cancelar</button>
       <button class="mbtn mbtn-save" id="mgSaveBtn" onclick="window.saveMonthlyGoal()" style="flex:1;font-size:13px;font-weight:700;">Salvar Meta</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Perfil do Usuário -->
+<div id="profileModal" class="modal-overlay">
+  <div class="modal-card" style="max-width: 340px; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3);">
+    <!-- Header com Degradê Premium -->
+    <div style="background: linear-gradient(135deg, var(--pr-blue-dark) 0%, var(--pr-blue-mid) 100%); padding: 25px 20px; text-align: center; position: relative;">
+      <div id="profileInitialsCircle" style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); border: 2px solid #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 24px; font-weight: 800; margin: 0 auto 12px; backdrop-filter: blur(5px);">--</div>
+      <div id="profileEmailDisplay" style="color: rgba(255,255,255,0.8); font-size: 11px; font-weight: 500;">email@exemplo.com</div>
+      <button onclick="window.closeProfileModal()" style="position: absolute; top: 15px; right: 15px; background: rgba(255,255,255,0.1); border: none; color: #fff; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px;">✕</button>
+    </div>
+
+    <div style="padding: 20px; background: var(--pr-surface);">
+      <div style="margin-bottom: 15px;">
+        <label style="display: block; font-size: 11px; font-weight: 700; color: var(--pr-text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Nome Completo</label>
+        <input type="text" id="profileName" class="modal-input" placeholder="Seu nome" style="height: 44px; border-radius: 12px; font-size: 14px; font-weight: 600;">
+      </div>
+      
+      <div style="margin-bottom: 20px;">
+        <label style="display: block; font-size: 11px; font-weight: 700; color: var(--pr-text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Apelido / Como quer ser chamado</label>
+        <input type="text" id="profileNickname" class="modal-input" placeholder="Ex: Lucas" style="height: 44px; border-radius: 12px; font-size: 14px; font-weight: 600;">
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button class="mbtn mbtn-save" onclick="window.updateProfileData()" style="width: 100%; height: 44px; border-radius: 12px; font-weight: 700; font-size: 14px; background: #27ae60; border: none; color: #fff; cursor: pointer;">Salvar Alterações</button>
+        <button onclick="handleLogout()" style="width: 100%; height: 44px; border-radius: 12px; font-weight: 700; font-size: 13px; background: rgba(231, 76, 60, 0.1); border: 1.5px solid rgba(231, 76, 60, 0.2); color: #e74c3c; cursor: pointer; transition: all 0.2s;">Sair da Conta</button>
+      </div>
     </div>
   </div>
 </div>

@@ -1,4 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 import { getFirestore, collection, addDoc, getDocs, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch, increment } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 import { getDatabase, ref as rtdbRef, set as rtdbSet, onValue, off } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
@@ -39,6 +39,15 @@ function sanitizeUrl(url) {
   if (!url) return '';
   try { const u = new URL(url); return ['http:', 'https:'].includes(u.protocol) ? url : ''; }
   catch(e) { return ''; }
+}
+
+// Gera iniciais a partir do nome
+function getInitials(name) {
+  if (!name) return "--";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 0) return "--";
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
 
 // Tema: persistência entre login e app
@@ -227,9 +236,7 @@ function aplicarMensagemDaSemana(idElemento) {
 async function applyRoleUI() {
   console.log("Seu nível de acesso detectado:", window.userRole);
   
-  // Aplica a mensagem motivacional do dia
-  aplicarMensagemDaSemana('cardMotivacional');
-
+  const cardMotivacional = document.getElementById('cardMotivacional');
   const adminPanel = document.getElementById('adminPanel');
   const driverPanel = document.getElementById('driverPanel');
   const adminHubBtn = document.getElementById('adminHubBtn');
@@ -243,6 +250,7 @@ async function applyRoleUI() {
   const commissionRulesBtn = document.getElementById('commissionRulesBtn');
   
   if (window.userRole === "admin") {
+    document.body.classList.add('is-admin');
     // ═══ ADMIN VIEW ═══
     if (adminPanel) adminPanel.style.display = '';
     if (driverPanel) driverPanel.style.display = 'none';
@@ -256,10 +264,20 @@ async function applyRoleUI() {
     if (bottomNavAdmin) bottomNavAdmin.style.display = '';
     if (bottomNavDriver) bottomNavDriver.style.display = 'none';
     if (adminArea) adminArea.style.display = 'flex';
-    if (dailyRouteCard) dailyRouteCard.style.display = ''; // Show card with new purpose
+    if (dailyRouteCard) {
+      dailyRouteCard.style.display = '';
+      // Suba mais 5px (Total 45px de subida para Admin: Desktop: 80-45=35, Mobile: 75-45=30)
+      dailyRouteCard.style.top = (window.innerWidth <= 520) ? '30px' : '35px';
+    }
     if (adminFleetCard) adminFleetCard.style.display = 'none';
     const adminMsg = document.getElementById('adminCardMessage');
     if (adminMsg) adminMsg.style.display = 'block';
+    
+    // Show and populate motivational card for Admin
+    if (cardMotivacional) {
+      cardMotivacional.style.display = 'block';
+      aplicarMensagemDaSemana('cardMotivacional');
+    }
     
     // Repurpose the card for Admin: "Rotas Futuras"
     const drcTitle = document.getElementById('drcTitle');
@@ -337,6 +355,7 @@ async function applyRoleUI() {
     }
 
   } else {
+    document.body.classList.remove('is-admin');
     // ═══ DRIVER VIEW ═══
     if (adminPanel) adminPanel.style.display = 'none';
     if (driverPanel) driverPanel.style.display = '';
@@ -345,15 +364,18 @@ async function applyRoleUI() {
     if (bottomNavAdmin) bottomNavAdmin.style.display = 'none';
     if (bottomNavDriver) bottomNavDriver.style.display = '';
     if (adminArea) adminArea.style.display = 'none';
-    if (dailyRouteCard) dailyRouteCard.style.display = ''; // Show route card
+    if (dailyRouteCard) {
+      dailyRouteCard.style.display = '';
+      dailyRouteCard.style.top = (window.innerWidth <= 520) ? '75px' : '80px';
+    }
     if (adminFleetCard) adminFleetCard.style.display = 'none'; // Hide fleet card
     
     // Start listening for driver missions
     loadDriverMissions();
+    
+    // Hide motivational card for Driver
+    if (cardMotivacional) cardMotivacional.style.display = 'none';
   }
-
-  // Atualizar card motivacional em ambos os casos
-  aplicarMensagemDaSemana('cardMotivacional');
 }
 
 // ══════════════════════════════════════════════════════════
@@ -905,6 +927,72 @@ window.closeDriverRoutesModal = function() {
   document.getElementById('driverRoutesModal').classList.remove('active');
 };
 
+// ══════════════════════════════════════════════════════════
+// PERFIL DO USUÁRIO
+// ══════════════════════════════════════════════════════════
+
+window.openProfileModal = async function() {
+  if (!currentUser) return;
+  
+  const modal = document.getElementById('profileModal');
+  const nameInput = document.getElementById('profileName');
+  const nickInput = document.getElementById('profileNickname');
+  const emailDisplay = document.getElementById('profileEmailDisplay');
+  const circle = document.getElementById('profileInitialsCircle');
+  
+  if (modal) modal.classList.add('active');
+  
+  try {
+    const userSnap = await getDoc(doc(db, "users", currentUser.uid));
+    if (userSnap.exists()) {
+      const u = userSnap.data();
+      if (nameInput) nameInput.value = u.nome || "";
+      if (nickInput) nickInput.value = u.apelido || "";
+      if (emailDisplay) emailDisplay.textContent = currentUser.email;
+      if (circle) circle.textContent = getInitials(u.nome || currentUser.displayName || currentUser.email);
+    }
+  } catch (e) {
+    console.error("Erro ao abrir perfil:", e);
+  }
+};
+
+window.closeProfileModal = function() {
+  const modal = document.getElementById('profileModal');
+  if (modal) modal.classList.remove('active');
+};
+
+window.updateProfileData = async function() {
+  if (!currentUser) return;
+  
+  const nome = document.getElementById('profileName').value.trim();
+  const apelido = document.getElementById('profileNickname').value.trim();
+  
+  try {
+    // Atualizar no Firestore
+    await updateDoc(doc(db, "users", currentUser.uid), {
+      nome: nome,
+      apelido: apelido
+    });
+
+    // Atualizar cache global
+    if (window.currentUserData) {
+      window.currentUserData.nome = nome;
+      window.currentUserData.apelido = apelido;
+    }
+
+    // Atualizar iniciais no topo
+    const navAvatar = document.querySelector('.nav-avatar');
+    if (navAvatar) {
+      navAvatar.textContent = getInitials(apelido || nome || currentUser.email || 'A');
+    }
+    
+    alert("Perfil atualizado com sucesso!");
+    window.closeProfileModal();
+  } catch (e) {
+    alert("Erro ao atualizar perfil: " + e.message);
+  }
+};
+
 // Removido duplicata do renameDriver
 
 // ══════════════════════════════════════════════════════════
@@ -960,9 +1048,16 @@ onAuthStateChanged(auth, async (user) => {
 
         // companyId: admin usa o próprio UID; motorista usa o UID do seu admin
         window.companyId = udata.companyId || window.adminId || currentUser.uid;
+        window.currentUserData = udata; // Cache global
         
         if (udata.inviteCodeCache) {
           document.getElementById('rpDriverInput').value = udata.inviteCodeCache;
+        }
+        
+        // Atualiza iniciais no avatar da navegação
+        const navAvatar = document.getElementById('navAvatar');
+        if (navAvatar) {
+          navAvatar.textContent = getInitials(udata.apelido || udata.nome || currentUser.displayName || currentUser.email || 'A');
         }
       }
 
@@ -1826,7 +1921,8 @@ window.generateManualRoute = async function() {
     // Se está enviando para um motorista, salvar quem enviou
     if (targetUid !== currentUser.uid) {
       routeData.assignedBy = currentUser.uid;
-      routeData.assignedByName = currentUser.displayName || currentUser.email || 'Admin';
+      const u = window.currentUserData || {};
+      routeData.assignedByName = u.apelido || u.nome || currentUser.displayName || currentUser.email || 'Admin';
     }
 
     // 4) Salvar no banco (vai disparar o listener do Firestore que atualiza o card do Usuário Alvo)
@@ -2620,7 +2716,7 @@ window.fpSendScheduledNow = async function(schedId) {
       status: "Pendente",
       createdAt: serverTimestamp(),
       assignedBy: currentUser.uid,
-      assignedByName: currentUser.displayName || currentUser.email || 'Admin'
+      assignedByName: (window.currentUserData?.apelido || window.currentUserData?.nome || currentUser.displayName || currentUser.email || 'Admin')
     };
 
     if (data.note) routeData.note = data.note;
@@ -2691,7 +2787,7 @@ window.startScheduledRouteDispatcher = function() {
         status: "Pendente",
         createdAt: serverTimestamp(),
         assignedBy: currentUser.uid,
-        assignedByName: currentUser.displayName || currentUser.email || 'Admin'
+        assignedByName: (window.currentUserData?.apelido || window.currentUserData?.nome || currentUser.displayName || currentUser.email || 'Admin')
       };
       if (schedData.note) routeData.note = schedData.note;
 
@@ -2856,7 +2952,7 @@ window.checkAndDispatchScheduledRoutes = async function() {
           status: "Pendente",
           createdAt: serverTimestamp(),
           assignedBy: currentUser.uid,
-          assignedByName: currentUser.displayName || currentUser.email || 'Admin'
+          assignedByName: (window.currentUserData?.apelido || window.currentUserData?.nome || currentUser.displayName || currentUser.email || 'Admin')
         };
         if (data.note) routeData.note = data.note;
 
@@ -3310,6 +3406,20 @@ window.saveDriverNickname = async function(driverUid, btn) {
       btn.style.background = '#1A6BAF';
       btn.style.pointerEvents = 'auto';
     }, 2000);
+
+    // 2. Update in-memory _fleetDrivers cache so the builder list stays in sync
+    if (window._fleetDrivers) {
+      const cached = window._fleetDrivers.find(d => d.uid === driverUid);
+      if (cached) cached.apelido = apelido;
+    }
+
+    // 3. If the Fleet Panel (Rotas Futuras) is currently open, re-render it
+    const fleetPanelEl = document.getElementById('fleetPanel');
+    if (fleetPanelEl && fleetPanelEl.style.display !== 'none') {
+      renderFleetDriverCards();
+    }
+
+    // NOTE: Admin Hub (Monitorar ao Vivo) auto-updates via its existing onSnapshot.
     // Also refresh the builder driver cards
     applyRoleUI();
   } catch(e) {
@@ -3337,11 +3447,45 @@ window.renameDriver = async function(driverUid, oldName) {
   if (newNick === null) return;
   
   try {
-    await updateDoc(doc(db, "users", driverUid), { apelido: newNick.trim() });
+    const trimmedNick = newNick.trim();
+    await updateDoc(doc(db, "users", driverUid), { apelido: trimmedNick });
+
+    // 1. Update in-memory _fleetDrivers cache
+    if (window._fleetDrivers) {
+      const cached = window._fleetDrivers.find(d => d.uid === driverUid);
+      if (cached) cached.apelido = trimmedNick;
+    }
+
+    // 2. If the Fleet Panel (Rotas Futuras) is currently open, re-render it
+    const fleetPanel = document.getElementById('fleetPanel');
+    if (fleetPanel && fleetPanel.style.display !== 'none') {
+      renderFleetDriverCards();
+    }
+
+    // NOTE: Admin Hub (Monitorar ao Vivo) auto-updates via its existing onSnapshot.
     alert("Apelido atualizado com sucesso!");
-    // O snapshot do loadAdminHubData cuidará da atualização visual
   } catch(e) {
     alert("Erro ao atualizar apelido: " + e.message);
+  }
+};
+
+window.deleteDriver = async function(driverUid, name) {
+  if (!checkRole('admin')) return;
+  
+  const confirm1 = confirm(`🚨 ATENÇÃO: Você está prestes a EXCLUIR permanentemente o perfil de "${name}" do sistema.\n\nEsta ação removerá o acesso dele e seus dados de cadastro. Deseja continuar?`);
+  if (!confirm1) return;
+  
+  const confirm2 = confirm(`⚠️ Confirmação Final: Confirmar exclusão definitiva de "${name}"?`);
+  if (!confirm2) return;
+  
+  try {
+    // Nota: Subcoleções como history e scheduledRoutes permanecerão no banco (lixo órfão), 
+    // mas o usuário deixará de existir no sistema e sumirá do painel.
+    await deleteDoc(doc(db, "users", driverUid));
+    alert(`✅ Perfil de "${name}" excluído com sucesso.`);
+  } catch(e) {
+    console.error("Erro ao excluir motorista:", e);
+    alert("Erro ao excluir motorista: " + e.message);
   }
 };
 
@@ -3418,11 +3562,18 @@ async function loadAdminHubData() {
                 <div style="display: flex; gap: 12px; align-items: center;">
                   <div class="fdc-avatar">${initial}</div>
                   <div>
-                    <div class="fdc-name" style="display:flex; align-items:center; gap:5px;">
+                    <div class="fdc-name" style="display:flex; align-items:center; gap:8px;">
                       ${escapeHTML(displayName)}
-                      <span style="font-size:10px; cursor:pointer; opacity: 0.5; text-decoration: underline;" onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')">Editar</span>
                     </div>
-                    <div class="fdc-email">${escapeHTML(u.email || "")}</div>
+                    <div style="display:flex; gap:6px; margin-top:4px;">
+                      <button onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')" style="background:var(--pr-blue-pale); color:var(--pr-blue-dark); border:none; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
+                        <span>✏️</span> Editar
+                      </button>
+                      <button onclick="deleteDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')" style="background:rgba(231, 76, 60, 0.1); color:#e74c3c; border:none; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
+                        <span>🗑️</span> Excluir
+                      </button>
+                    </div>
+                    <div class="fdc-email" style="margin-top:6px;">${escapeHTML(u.email || "")}</div>
                   </div>
                 </div>
               </div>
@@ -3473,7 +3624,14 @@ async function loadAdminHubData() {
                   <div style="flex: 1; min-width: 0;">
                     <div class="text-dark-auto" style="font-weight:800; font-size:14px; display: flex; align-items: center; gap: 6px;">
                       ${escapeHTML(displayName)}
-                      <span style="font-size:10px; cursor:pointer; opacity: 0.5;" onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')">✏️</span>
+                    </div>
+                    <div style="display:flex; gap:6px; margin: 4px 0;">
+                      <button onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')" style="background:var(--pr-blue-pale); color:var(--pr-blue-dark); border:none; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
+                        <span>✏️</span> Editar
+                      </button>
+                      <button onclick="deleteDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')" style="background:rgba(231, 76, 60, 0.1); color:#e74c3c; border:none; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
+                        <span>🗑️</span> Excluir
+                      </button>
                     </div>
                     <div style="font-size:11px; color:var(--pr-text-muted); display: flex; align-items: center;">
                       <span class="status-pulse ${stClass}"></span>
@@ -3997,14 +4155,10 @@ const _spyRoleCheckInterval = setInterval(() => {
     if (!spyMap) return;
     if (tileLayer) spyMap.removeLayer(tileLayer);
 
-    const isDark = document.body.classList.contains('dm');
-    const url = isDark 
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-    
-    const attribution = isDark 
-        ? '&copy; <a href="https://carto.com/">CARTO</a>'
-        : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+    // O usuário solicitou que o MAPA de monitoramento fique sempre em modo claro, 
+    // independente do tema do restante do app.
+    const url = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
     tileLayer = L.tileLayer(url, { attribution }).addTo(spyMap);
   }

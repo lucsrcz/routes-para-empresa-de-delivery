@@ -58,24 +58,30 @@ body {
   display:flex;align-items:center;gap:6px;
   background:rgba(255,255,255,0.1);
   border:0.5px solid rgba(255,255,255,0.2);
-  border-radius:24px;padding:5px 12px;cursor:pointer;
+  border-radius:20px;padding:0 12px;cursor:pointer;
   transition:background .2s;
+  height: 32px;
 }
 .temp-card:hover{background:rgba(154,200,226,0.28);}
 .temp-icon{font-size:14px;line-height:1;}
-.temp-val{color:#fff;font-size:13px;font-weight:800;}
-.temp-loc{color:var(--pr-blue-light);font-size:10px;font-weight:600;letter-spacing:.03em;}
-.temp-col{display:flex;flex-direction:column;line-height:1.2;}
+.temp-val{color:#fff;font-size:12px;font-weight:800;line-height:1;}
+.temp-loc{color:var(--pr-blue-light);font-size:9px;font-weight:600;letter-spacing:.03em;line-height:1;margin-top:1px;}
+.temp-col{display:flex;flex-direction:column;justify-content:center;height:100%;}
+
+/* Admin specific: Hide location in temperature card */
+.is-admin .temp-loc { display: none; }
 
 .mode-btn{
   background:rgba(154,200,226,0.12);
   border:0.5px solid rgba(154,200,226,0.25);
-  color:#fff;font-size:10px;
-  padding:4px 9px;border-radius:20px;cursor:pointer;
+  color:#fff;font-size:11px;font-weight:600;
+  padding:0 12px;border-radius:20px;cursor:pointer;
   white-space:nowrap;
+  height: 32px;
+  display: flex; align-items: center; justify-content: center;
 }
 .mode-btn:hover{background:rgba(154,200,226,0.28);}
-.nav-av{width:30px;height:30px;border-radius:50%;background:var(--pr-blue-light);color:var(--pr-blue-dark);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.2);flex-shrink:0;transition:transform 0.15s;}
+.nav-av{width:32px;height:32px;border-radius:50%;background:var(--pr-blue-light);color:var(--pr-blue-dark);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.2);flex-shrink:0;transition:transform 0.15s;}
 .nav-av:hover{transform:scale(1.05);}
 
 
@@ -91,6 +97,10 @@ body {
   display:flex;flex-direction:column;
   overflow-y:auto;overflow-x:hidden;
   box-shadow:4px 0 20px rgba(0,0,0,0.1);
+}
+.dm .sidebar {
+  background: linear-gradient(135deg, #0d487b 0%, #082e52 100%);
+  border-right-color: rgba(255, 255, 255, 0.05);
 }
 .sidebar::-webkit-scrollbar{width:3px;}
 .sidebar::-webkit-scrollbar-thumb{background:var(--pr-blue-pale);border-radius:4px;}
@@ -117,30 +127,82 @@ body {
   border-radius:10px;padding:10px 13px;
   display:flex;align-items:center;gap:11px;cursor:pointer;
   border:0.5px solid transparent;
-  transition:transform .15s,box-shadow .15s;
+  transition:all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
   box-shadow:var(--pr-shadow);
+  position: relative;
+  overflow: hidden;
 }
-.acard:hover{transform:translateY(-1px);box-shadow:0 5px 16px rgba(13,72,123,0.2);}
-.acard:active{transform:scale(.98);}
-.acard.c1{background:var(--pr-blue-dark);}
-.acard.c1m{background:var(--pr-blue-mid);}
-.acard.c2{background:#1E8AB4;}
-.acard.c3{background:var(--pr-surface);border-color:var(--pr-border);}
-.acard.c4{background:var(--pr-surface);border-color:var(--pr-border);}
+
+/* Premium Shine Effect for all cards */
+.acard::before, .daily-route-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  transform: translateX(-100%);
+  animation: shine 3s infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.acard:hover { 
+  transform: translateY(-4px) scale(1.02); 
+  box-shadow: 0 12px 24px rgba(13,72,123,0.12);
+  filter: brightness(1.05);
+}
+.acard:active { transform: scale(0.98); }
+
+.acard.c1 { background: linear-gradient(135deg, var(--pr-blue-dark), #1a6baf); }
+.acard.c1m { background: linear-gradient(135deg, var(--pr-blue-mid), #1e8ab4); }
+/* Adicionar Local - Soft Teal */
+.acard.c2 { background: linear-gradient(135deg, #0fb9b1, #20bf6b); color: #fff; border: none; }
+/* Pesquisar Locais - Soft Indigo */
+.acard.c3 { background: linear-gradient(135deg, #4b7bec, #3867d6); color: #fff; border: none; }
+/* Add Local Pessoal - Soft Violet */
+.acard.c4 { background: linear-gradient(135deg, #a55eea, #8854d0); color: #fff; border: none; }
+
+.dm .acard.c3, .dm .acard.c4 { border: none; }
+
+
+/* Lighter and Smoother cards with distinct tones in Dark Mode */
+.dm .acard.c3 {
+  background: rgba(154, 200, 226, 0.1) !important;
+  border-color: rgba(154, 200, 226, 0.15);
+  backdrop-filter: blur(8px);
+}
+.dm .acard.c3 .acard-icon {
+  background: rgba(154, 200, 226, 0.2) !important;
+  color: #fff !important;
+}
+
+.dm .acard.c4 {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+}
+.dm .acard.c4 .acard-icon {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: #fff !important;
+}
+
+.dm .acard.c3 .acard-title, .dm .acard.c4 .acard-title {
+  color: var(--pr-blue-light) !important;
+}
+
+.dm .acard.c3 .acard-desc, .dm .acard.c4 .acard-desc {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
 .acard-icon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px;}
-.c1 .acard-icon,.c1m .acard-icon,.c2 .acard-icon{background:rgba(255,255,255,0.16);}
-.c3 .acard-icon{background:var(--pr-blue-pale);}
-.acard-body{flex:1;min-width:0;}
-.acard-title{font-size:12px;font-weight:700;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.acard-desc{font-size:10px;opacity:.72;line-height:1.3;}
-.c1 .acard-title,.c1 .acard-desc,
-.c1m .acard-title,.c1m .acard-desc,
-.c2 .acard-title,.c2 .acard-desc{color:#fff;}
-.c3 .acard-title{color:var(--pr-text);}
-.c3 .acard-desc{color:var(--pr-text-muted);}
-.acard-arr{font-size:15px;opacity:.5;flex-shrink:0;}
-.c1 .acard-arr,.c1m .acard-arr,.c2 .acard-arr{color:#fff;}
-.c3 .acard-arr{color:var(--pr-text-muted);}
+.c1 .acard-icon, .c1m .acard-icon, .c2 .acard-icon, .c3 .acard-icon, .c4 .acard-icon { background: rgba(255,255,255,0.18); color: #fff; }
+.acard-body { flex: 1; min-width: 0; }
+.acard-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acard-desc { font-size: 10px; opacity: 0.85; line-height: 1.3; }
+.c1 .acard-title, .c1 .acard-desc,
+.c1m .acard-title, .c1m .acard-desc,
+.c2 .acard-title, .c2 .acard-desc,
+.c3 .acard-title, .c3 .acard-desc,
+.c4 .acard-title, .c4 .acard-desc { color: #fff; }
+.acard-arr { font-size: 16px; opacity: 0.6; flex-shrink: 0; color: #fff; }
 
 /* SECTION LABELS */
 .sec-label{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--pr-text-muted);padding:9px 13px 5px;}
@@ -205,9 +267,8 @@ body {
 
 #pdRouteDetails {
   position: absolute;
-  top: 50%;
+  bottom: 15px;
   right: 12px;
-  transform: translateY(calc(-50% + 30px));
   z-index: 10;
   pointer-events: none; /* Allow clicking through the container to the map if needed, though motiv-card will override */
 }
@@ -339,6 +400,10 @@ body {
     border-top:1px solid var(--pr-border);
     display:flex;flex-direction:column;
   }
+  .dm .sidebar {
+    background: linear-gradient(135deg, #0d487b 0%, #082e52 100%);
+    border-top-color: rgba(255,255,255,0.1);
+  }
   .sidebar::-webkit-scrollbar{width:3px;}
   .sidebar::-webkit-scrollbar-thumb{background:var(--pr-blue-pale);border-radius:4px;}
   .nav-title{font-size:14px;}
@@ -347,6 +412,10 @@ body {
     display:flex;align-items:center;justify-content:space-around;
     background:var(--pr-surface);border-top:0.5px solid var(--pr-border);
     height:56px;min-height:56px;flex-shrink:0;padding:0 8px;
+  }
+  .dm .bottom-nav {
+    background: linear-gradient(135deg, #0d487b 0%, #082e52 100%);
+    border-top-color: rgba(255,255,255,0.1);
   }
   .bn-item{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;padding:4px 10px;border-radius:8px;transition:background .15s;flex:1;color: var(--pr-blue-dark);}
   .dm .bn-item { color: var(--pr-blue-light); }
@@ -369,6 +438,12 @@ body {
   .pd-badge{
     top: auto !important;
     bottom: 180px !important;
+    transform: none !important;
+  }
+  #pdRouteDetails {
+    top: auto !important;
+    bottom: -5px !important;
+    right: 8px !important;
     transform: none !important;
   }
 }
@@ -412,21 +487,31 @@ body {
   display: flex; justify-content: flex-end; gap: 10px;
 }
 .mbtn {
-  padding: 10px 18px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; font-family: inherit;
+  padding: 10px 18px; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer; border: none; font-family: inherit;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
 }
+.mbtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+}
+.mbtn:active { transform: scale(0.96); }
+
 .mbtn-cancel {
   background: rgba(13, 72, 123, 0.08); 
   color: var(--pr-blue-dark);
-  transition: all 0.2s ease;
 }
 .mbtn-cancel:hover { 
-  background: rgba(13, 72, 123, 0.15); 
+  background: rgba(13, 72, 123, 0.12); 
 }
 .mbtn-save {
-  background: var(--pr-blue-dark); color: #fff;
-  transition: all 0.2s ease;
+  background: linear-gradient(135deg, var(--pr-blue-dark), #1a6baf); 
+  color: #fff;
 }
-.mbtn-save:hover { background: var(--pr-blue-mid); }
+.mbtn-save:hover { 
+  background: linear-gradient(135deg, var(--pr-blue-mid), #1e8ab4); 
+}
 .dm .mbtn-cancel {
   background: rgba(154, 200, 226, 0.1);
   color: var(--pr-blue-light);
@@ -449,20 +534,31 @@ body {
   position: fixed;
   top: 80px;
   right: 16px;
-  width: 220px;
+  width: 260px;
   background: var(--pr-surface);
-  border-radius: 10px;
+  border-radius: 16px;
   box-shadow: var(--pr-shadow);
   z-index: 1000;
   overflow: hidden;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
   font-family: var(--font-main);
   border: 1px solid var(--pr-border);
+  animation: motivSlideIn 0.8s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .daily-route-card:hover {
   transform: translateY(-3px);
   box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+}
+.dm .drc-preview {
+  background: linear-gradient(135deg, #0d487b, #082e52);
+}
+.dm .daily-route-card {
+  background: linear-gradient(135deg, rgba(13, 72, 123, 0.95), rgba(8, 46, 82, 0.98));
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.dm .drc-content {
+  background: transparent; /* Let the card's gradient show through */
 }
 .dm .daily-route-card:hover { box-shadow: 0 12px 40px rgba(0,0,0,0.55); }
 
@@ -477,12 +573,13 @@ body {
   position: relative;
   background: var(--pr-bg);
   overflow: hidden;
+  padding: 8px;
 }
 
 .drc-preview img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 /* Conteúdo da barra inferior (estilo WhatsApp) */
@@ -549,7 +646,7 @@ body {
     top: 75px;
     right: 10px;
     left: auto;
-    width: 200px;
+    width: 260px;
     z-index: 1000;
   }
   .drc-preview {
