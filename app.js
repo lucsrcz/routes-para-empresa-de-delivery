@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
-import { getFirestore, collection, addDoc, getDocs, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch, increment } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 import { getDatabase, ref as rtdbRef, set as rtdbSet, onValue, off } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-storage.js";
 
@@ -664,23 +664,26 @@ window.confirmDelivery = async function() {
   `;
 
   try {
+    console.log("[Delivery] Iniciando confirmação de entrega...");
     let photoUrl = null;
     const storagePath = `deliveries/${window.companyId || currentUser.uid}/${currentMissionIdForCompletion}_${Date.now()}.jpg`;
     const sRef = storageRef(storage, storagePath);
     
     // Upload photo
+    console.log("[Delivery] Iniciando upload da foto...");
     const snapshot = await uploadBytes(sRef, deliveryPhotoBuffer);
     photoUrl = await getDownloadURL(snapshot.ref);
 
     // Calcular comissão
+    console.log("[Delivery] Calculando comissão...");
     const commission = await calculateCommissionValue(weight);
 
-    // Deduzir da meta mensal (pois o motorista enviou)
+    // Deduzir da meta mensal
     if (typeof window.deductFromMonthlyGoal === 'function') {
       await window.deductFromMonthlyGoal(weight, cargoValue);
     }
 
-    // Calcular remaining na Carga Programada
+    // Buscar rota atual
     const routeDocRef = doc(db, "users", currentUser.uid, "history", currentMissionIdForCompletion);
     const routeSnap = await getDoc(routeDocRef);
     let isFullyCompleted = true;
@@ -689,27 +692,19 @@ window.confirmDelivery = async function() {
 
     if (routeSnap.exists()) {
       const data = routeSnap.data();
-      const currentExpectedWeight = data.expectedWeight || 0;
-      const currentExpectedValue = data.expectedValue || 0;
-      
-      newExpectedWeight = currentExpectedWeight - weight;
-      newExpectedValue = currentExpectedValue - cargoValue;
-      
-      if (newExpectedWeight < 0) newExpectedWeight = 0;
-      if (newExpectedValue < 0) newExpectedValue = 0;
-      
-      if (newExpectedWeight > 0 || newExpectedValue > 0) {
-        isFullyCompleted = false;
-      }
+      newExpectedWeight = Math.max(0, (data.expectedWeight || 0) - weight);
+      newExpectedValue = Math.max(0, (data.expectedValue || 0) - cargoValue);
+      if (newExpectedWeight > 0 || newExpectedValue > 0) isFullyCompleted = false;
     }
 
     const finalStatus = isFullyCompleted ? "Concluída" : "Pendente";
 
-    // Buscar valores acumulados atuais
+    // Buscar valores acumulados
     const currentDeliveredWeight = (routeSnap.exists() ? routeSnap.data().deliveredWeight : 0) || 0;
     const currentDeliveredValue = (routeSnap.exists() ? routeSnap.data().deliveredValue : 0) || 0;
     const currentTotalCommission = (routeSnap.exists() ? routeSnap.data().totalCommission : 0) || 0;
 
+    // 1. Atualizar status da rota
     await window.updateRouteStatus(currentMissionIdForCompletion, finalStatus, {
       completedAt: serverTimestamp(),
       lastWeight: weight,
@@ -724,14 +719,21 @@ window.confirmDelivery = async function() {
       expectedValue: newExpectedValue
     });
 
-    alert("Entrega registrada com sucesso!");
+    // 2. Incrementar estatísticas vitalícias (Campos para Admin/Dashboard)
+    await updateDoc(doc(db, "users", currentUser.uid), {
+      perfTotalWeight:     increment(weight),
+      perfTotalValue:      increment(cargoValue),
+      perfTotalCommission: increment(commission),
+      perfTotalCompleted:  increment(1),
+      perfLastDeliveryAt:  serverTimestamp()
+    });
+
+    alert("✅ Entrega registrada com sucesso!");
     window.closeDeliveryModal();
-    
-    // Feedback visual imediato se estiver na aba de histórico
     if (window.loadDriverMissions) window.loadDriverMissions();
     
   } catch (e) {
-    console.error("[Delivery] Erro ao finalizar:", e);
+    console.error("[Delivery] Erro crítico:", e);
     alert("❌ Erro ao salvar entrega: " + (e.message || "Verifique sua conexão."));
   } finally {
     btn.disabled = false;
@@ -740,6 +742,10 @@ window.confirmDelivery = async function() {
 };
 
 async function calculateCommissionValue(weight) {
+  if (!window.companyId) {
+    console.warn("[Comm] companyId não definido, usando comissão 0.");
+    return 0;
+  }
   try {
     const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
     const snapshot = await getDocs(q);
@@ -4237,47 +4243,37 @@ const _spyRoleCheckInterval = setInterval(() => {
     listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">Analisando rotas...</div>';
     
     try {
-      const q = query(
-        collection(db, "users", uid, "history"),
-        orderBy("createdAt", "desc"),
-        limit(20)
-      );
-      
+      // 1. Buscar Totais Vitalícios do Usuário
+      const userSnap = await getDoc(doc(db, "users", uid));
+      if (userSnap.exists()) {
+        const u = userSnap.data();
+        document.getElementById('statTotalRoutes').textContent = u.perfTotalCompleted || 0;
+        document.getElementById('statTotalValue').textContent = 'R$ ' + (u.perfTotalValue || 0).toLocaleString('pt-BR', {minimumFractionDigits:2});
+        document.getElementById('statTotalWeight').textContent = (u.perfTotalWeight || 0).toLocaleString('pt-BR') + ' kg';
+      }
+
+      // 2. Carregar Histórico Recente
+      const q = query(collection(db, "users", uid, "history"), orderBy("createdAt", "desc"), limit(20));
       const snap = await getDocs(q);
-      let totalRoutes = 0;
-      let totalStops = 0;
-      let totalValue = 0;
       
       if (snap.empty) {
-        listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">Nenhuma rota encontrada para este motorista.</div>';
-        document.getElementById('statTotalRoutes').textContent = '0';
-        document.getElementById('statTotalStops').textContent = '0';
-        const tv = document.getElementById('statTotalValue');
-        if(tv) tv.textContent = 'R$ 0,00';
+        listContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--pr-text-muted); font-size:12px;">Sem rotas recentes.</div>';
         return;
       }
       
       listContainer.innerHTML = '';
-      
+      let runningStops = 0;
+
       snap.forEach(docSnap => {
         const data = docSnap.data();
-        const isConcluded = (data.status === 'CONCLUDED' || data.status === 'Concluída');
+        const stops = (data.stopsCount || (data.stops ? data.stops.length : 0));
+        runningStops += stops;
         
-        // Desempenho: somar o que foi efetivamente entregue (valores acumulados ou valor final se for legado)
+        const isConcluded = (data.status === 'CONCLUDED' || data.status === 'Concluída' || data.status === 'Finalizada');
         const deliveredVal = Number(data.deliveredValue || data.cargoValue || 0);
         const deliveredWeight = Number(data.deliveredWeight || data.cargoWeight || 0);
-        const commVal = Number(data.totalCommission || data.commissionValue || 0);
-
-        totalRoutes++;
-        totalStops += (data.stopsCount || (data.stops ? data.stops.length : 0));
-        totalValue += deliveredVal;
-        
         const date = data.createdAt ? data.createdAt.toDate().toLocaleDateString('pt-BR') : '—';
-        const stops = data.stopsCount || (data.stops ? data.stops.length : 0);
         const statusClass = isConcluded ? 'concluded' : 'pending';
-        const statusLabel = isConcluded ? 'Concluída' : data.status;
-
-        const cargoInfo = `<div style="font-size:10px; color:var(--pr-blue-mid); margin-top:4px; font-weight:600;">Entregue: ${deliveredWeight}kg · R$ ${deliveredVal.toFixed(2)} · Comiss: R$ ${commVal.toFixed(2)}</div>`;
 
         const item = document.createElement('div');
         item.className = 'stats-history-card';
@@ -4285,19 +4281,16 @@ const _spyRoleCheckInterval = setInterval(() => {
           <div class="history-info">
             <div class="history-date">${date}</div>
             <div class="history-meta">${stops} paradas • ${data.distance || '—'} km</div>
-            ${cargoInfo}
+            <div style="font-size:10px; color:var(--pr-blue-mid); margin-top:4px; font-weight:700;">
+              📦 ${deliveredWeight}kg · R$ ${deliveredVal.toLocaleString('pt-BR')}
+            </div>
           </div>
-          <div class="history-status ${statusClass}">${statusLabel}</div>
+          <div class="history-status ${statusClass}">${isConcluded ? 'Concluída' : 'Pendente'}</div>
         `;
         listContainer.appendChild(item);
       });
       
-      document.getElementById('statTotalRoutes').textContent = totalRoutes;
-      document.getElementById('statTotalStops').textContent = totalStops;
-      const tvEl = document.getElementById('statTotalValue');
-      if (tvEl) {
-        tvEl.textContent = 'R$ ' + totalValue.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
-      }
+      document.getElementById('statTotalStops').textContent = runningStops;
       
     } catch (err) {
       console.error("Erro ao carregar estatísticas:", err);
@@ -4332,7 +4325,13 @@ const _spyRoleCheckInterval = setInterval(() => {
       alert('Apenas administradores podem acessar as metas mensais.');
       return;
     }
-    document.getElementById('monthlyGoalsModal').classList.add('active');
+    const modal = document.getElementById('monthlyGoalsModal');
+    if (modal) modal.classList.add('active');
+    
+    // Começar novo ciclo marcado por padrão
+    const resetCheck = document.getElementById('mgResetProgress');
+    if (resetCheck) resetCheck.checked = true;
+
     await loadGoalIntoForm();
   };
 
@@ -4345,10 +4344,14 @@ const _spyRoleCheckInterval = setInterval(() => {
     try {
       const snap = await getDoc(goalRef());
       if (!snap.exists()) {
-        // Sem meta ainda — limpar campos
-        ['mgCycleStart','mgCycleEnd','mgWeightMin','mgWeightMax','mgRevGoal'].forEach(id => {
+        // Sem meta ainda — limpar campos com valores padrão
+        ['mgCycleStart','mgCycleEnd'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.value = '';
+        });
+        ['mgWeightMin','mgWeightMax','mgRevGoal'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = '0';
         });
         document.getElementById('mgProgressCard').style.display = 'none';
         return;
@@ -4383,26 +4386,8 @@ const _spyRoleCheckInterval = setInterval(() => {
       if (wLabel) wLabel.textContent = `${usedWeight.toFixed(1)} / ${maxWeight} kg  (${wPct}%)`;
       if (vLabel) vLabel.textContent = `R$ ${usedValue.toFixed(2)} / R$ ${maxValue.toFixed(2)}  (${vPct}%)`;
 
-      // Ciclo — datas do ciclo atual
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth();
-      const startDay = g.cycleStart || 1;
-      const endDay = g.cycleEnd || 30;
-      
-      let startDateMonth = month;
-      let endDateMonth = month;
-      
-      if (startDay > endDay) {
-        if (now.getDate() >= startDay) {
-          endDateMonth = month + 1;
-        } else {
-          startDateMonth = month - 1;
-        }
-      }
-      
-      const startDate = new Date(year, startDateMonth, startDay);
-      const endDate   = new Date(year, endDateMonth, endDay);
+      const startDate = g.cycleStart ? new Date(g.cycleStart + 'T00:00:00') : new Date();
+      const endDate = g.cycleEnd ? new Date(g.cycleEnd + 'T23:59:59') : new Date();
       const fmtDate = d => d.toLocaleDateString('pt-BR', {day:'2-digit', month:'short'});
       if (cLabel) cLabel.textContent = `Ciclo: ${fmtDate(startDate)} → ${fmtDate(endDate)}`;
 
@@ -4419,20 +4404,16 @@ const _spyRoleCheckInterval = setInterval(() => {
     if (btn) { btn.textContent = '⏳ Salvando...'; btn.disabled = true; }
 
     const getNum = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const getStr = id => document.getElementById(id)?.value || '';
 
-    const cycleStart = getNum('mgCycleStart');
-    const cycleEnd   = getNum('mgCycleEnd');
+    const cycleStart = getStr('mgCycleStart');
+    const cycleEnd   = getStr('mgCycleEnd');
     const weightMin  = getNum('mgWeightMin');
     const weightMax  = getNum('mgWeightMax');
     const revGoal    = getNum('mgRevGoal');
 
     if (!cycleStart || !cycleEnd) {
-      alert('Preencha os dias de Início e Término do ciclo.');
-      if (btn) { btn.textContent = '💾 Salvar Meta'; btn.disabled = false; }
-      return;
-    }
-    if (cycleStart === cycleEnd) {
-      alert('O dia de Início não pode ser igual ao dia de Término.');
+      alert('Preencha as datas de Início e Término do ciclo.');
       if (btn) { btn.textContent = '💾 Salvar Meta'; btn.disabled = false; }
       return;
     }
@@ -4443,15 +4424,18 @@ const _spyRoleCheckInterval = setInterval(() => {
     }
 
     try {
-      // Verificar se já existe doc — preservar usedWeight e usedValue
       let usedWeight = 0, usedValue = 0;
-      try {
-        const snap = await getDoc(goalRef());
-        if (snap.exists()) {
-          usedWeight = snap.data().usedWeight || 0;
-          usedValue  = snap.data().usedValue  || 0;
-        }
-      } catch(_) { /* ignorar se novo */ }
+      const shouldReset = document.getElementById('mgResetProgress')?.checked;
+
+      if (!shouldReset) {
+        try {
+          const snap = await getDoc(goalRef());
+          if (snap.exists()) {
+            usedWeight = snap.data().usedWeight || 0;
+            usedValue  = snap.data().usedValue  || 0;
+          }
+        } catch(_) { /* ignore if new */ }
+      }
 
       await setDoc(goalRef(), {
         companyId:   window.companyId,
@@ -4506,20 +4490,8 @@ const _spyRoleCheckInterval = setInterval(() => {
     const g = snap.data();
     
     // 2. Calcular Datas do Ciclo
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const startDay = g.cycleStart || 1;
-    const endDay = g.cycleEnd || 30;
-    
-    let startDateMonth = month;
-    let endDateMonth = month;
-    if (startDay > endDay) {
-      if (now.getDate() >= startDay) endDateMonth = month + 1;
-      else startDateMonth = month - 1;
-    }
-    const startDate = new Date(year, startDateMonth, startDay, 0, 0, 0);
-    const endDate = new Date(year, endDateMonth, endDay, 23, 59, 59);
+    const startDate = g.cycleStart ? new Date(g.cycleStart + 'T00:00:00') : new Date();
+    const endDate = g.cycleEnd ? new Date(g.cycleEnd + 'T23:59:59') : new Date();
     
     const fmt = d => d.toLocaleDateString('pt-BR', {day:'2-digit', month:'short'});
     document.getElementById('gdCycleRange').textContent = `Ciclo: ${fmt(startDate)} → ${fmt(endDate)}`;
@@ -4703,16 +4675,10 @@ const _spyRoleCheckInterval = setInterval(() => {
 
       // Verificar se data atual está dentro do ciclo
       const now = new Date();
-      const day = now.getDate();
-      const start = g.cycleStart || 1;
-      const end = g.cycleEnd || 31;
+      const startDate = g.cycleStart ? new Date(g.cycleStart + 'T00:00:00') : new Date(0);
+      const endDate = g.cycleEnd ? new Date(g.cycleEnd + 'T23:59:59') : new Date(0);
       
-      let inCycle = false;
-      if (start <= end) {
-        inCycle = day >= start && day <= end;
-      } else {
-        inCycle = day >= start || day <= end;
-      }
+      const inCycle = now >= startDate && now <= endDate;
 
       if (!inCycle) {
         console.log('[MonthlyGoal] Fora do ciclo — sem dedução.');
