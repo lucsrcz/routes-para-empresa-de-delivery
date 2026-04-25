@@ -21,6 +21,9 @@ let currentMissionIdForCompletion = null;
 // ══════════════════════════════════════════════════════════
 // UTILS & NOTIFICATIONS
 // ══════════════════════════════════════════════════════════
+// Helper Sênior: Detectar Mobile/Touch
+const isMobileDevice = () => /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+const isTouchDevice = () => ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
 window.showToast = (message, type = 'info') => {
   let container = document.getElementById('toast-container');
@@ -1547,8 +1550,8 @@ window.saveLocation = async function() {
     if(res.ok) {
       const data = await res.json();
       resolvedData = {
-        lat: data.lat || null,
-        lng: data.lng || null,
+        lat: (data.lat !== undefined && data.lat !== null) ? data.lat : null,
+        lng: (data.lng !== undefined && data.lng !== null) ? data.lng : null,
         expandedUrl: data.expandedUrl || "",
         name: nameInput || data.name || "Local Adicionado"
       };
@@ -1918,6 +1921,40 @@ window.removeRoutePoint = function(index) {
   renderBuilderLocations();
 };
 
+/* ══════════════════════════════════════════════════════════
+   DRAG AND DROP - ADMIN ROUTE BUILDER
+   ══════════════════════════════════════════════════════════ */
+let draggedBuilderItemIndex = null;
+
+window.handleBuilderDragStart = function(e, index) {
+  if (isTouchDevice()) return; // Previne DnD em touch para permitir scroll
+  draggedBuilderItemIndex = index;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', index);
+};
+
+window.handleBuilderDragOver = function(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+};
+
+window.handleBuilderDrop = function(e, targetIndex) {
+  e.preventDefault();
+  if (draggedBuilderItemIndex === null || draggedBuilderItemIndex === targetIndex) return;
+  
+  const item = builderSelectedPoints.splice(draggedBuilderItemIndex, 1)[0];
+  builderSelectedPoints.splice(targetIndex, 0, item);
+  
+  draggedBuilderItemIndex = null;
+  renderBuilderSequence();
+};
+
+window.handleBuilderDragEnd = function(e) {
+  e.currentTarget.classList.remove('dragging');
+  draggedBuilderItemIndex = null;
+};
+
 window.moveRoutePoint = function(index, direction) {
   if (direction === -1 && index > 0) {
     const temp = builderSelectedPoints[index];
@@ -1931,39 +1968,42 @@ window.moveRoutePoint = function(index, direction) {
   renderBuilderSequence();
 };
 
+
 window.renderBuilderSequence = function() {
   const container = document.getElementById('routeSequence');
+  if(!container) return;
+
   if(builderSelectedPoints.length === 0) {
-    container.innerHTML = `<div style="font-size:10px; color:var(--pr-text-muted); text-align:center; padding-top:10px;">Nenhum ponto adicionado ainda. Selecione abaixo.</div>`;
+    container.innerHTML = `<div style="font-size:11px; color:var(--pr-text-muted); text-align:center; padding:20px 10px; border:1px dashed var(--pr-border); border-radius:10px;">Nenhum ponto adicionado ainda. Pesquise e selecione locais acima.</div>`;
     return;
   }
+  
   container.innerHTML = '';
   builderSelectedPoints.forEach((loc, i) => {
     const item = document.createElement('div');
-    item.style.display = 'flex';
-    item.style.alignItems = 'center';
-    item.style.background = 'var(--pr-surface)';
-    item.style.border = '0.5px solid var(--pr-border)';
-    item.style.padding = '5px 8px';
-    item.style.borderRadius = '6px';
-    item.style.gap = '8px';
+    item.className = 'route-sequence-item';
     
-    let badgeText = i + 1;
-    const upBtn = i > 0 ? `<button class="ia-btn" style="width:24px; height:24px; font-size:14px; font-weight:bold; color:var(--pr-text-muted);" onclick="moveRoutePoint(${i}, -1)" title="Subir">↑</button>` : `<div style="width:24px;"></div>`;
-    const downBtn = i < builderSelectedPoints.length - 1 ? `<button class="ia-btn" style="width:24px; height:24px; font-size:14px; font-weight:bold; color:var(--pr-text-muted);" onclick="moveRoutePoint(${i}, 1)" title="Descer">↓</button>` : `<div style="width:24px;"></div>`;
+    // Configura Drag and Drop
+    item.draggable = !isTouchDevice();
+    item.setAttribute('ondragstart', `handleBuilderDragStart(event, ${i})`);
+    item.setAttribute('ondragover', `handleBuilderDragOver(event)`);
+    item.setAttribute('ondrop', `handleBuilderDrop(event, ${i})`);
+    item.setAttribute('ondragend', `handleBuilderDragEnd(event)`);
 
     item.innerHTML = `
-      <div style="background:var(--pr-blue-dark); color:#fff; font-size:9px; font-weight:700; width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">${badgeText}</div>
-      <div style="flex:1; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--pr-text); font-weight:600;">${escapeHTML(loc.name || loc.originalInput)}</div>
-      <div style="display:flex; gap:2px; align-items:center;">
-        ${upBtn}
-        ${downBtn}
-        <button class="ia-btn" style="width:20px; height:20px; font-size:11px; color:#e06666;" onclick="removeRoutePoint(${i})" title="Remover ponto">✕</button>
+      <div class="drag-handle" title="Arraste para reordenar">☰</div>
+      <div class="badge">${i + 1}</div>
+      <div class="name" title="${escapeHTML(loc.name || loc.originalInput)}">
+        ${escapeHTML(loc.name || loc.originalInput)}
       </div>
+      <button class="remove-point-btn" onclick="removeRoutePoint(${i})" title="Remover este ponto">
+        ✕
+      </button>
     `;
     container.appendChild(item);
   });
 };
+
 
 window.generateManualRoute = async function() {
   const genBtn = document.getElementById('mainGenerateBtn');
@@ -1995,7 +2035,7 @@ window.generateManualRoute = async function() {
     }
     
     // 1) Montar o link do Google Maps (SEM abrir)
-    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
+    const getDeepFormat = (loc) => (loc.lat !== null && loc.lat !== undefined && loc.lng !== null && loc.lng !== undefined) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
     const lastP = builderSelectedPoints[builderSelectedPoints.length - 1];
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
     if (builderSelectedPoints.length > 1) {
@@ -2015,7 +2055,12 @@ window.generateManualRoute = async function() {
     // 3) Preparar dados da rota (Peso e Valor removidos a pedido do usuário)
 
     const routeData = {
-      points: builderSelectedPoints.map(p => ({name: p.name, input: p.originalInput, lat: p.lat||null, lng: p.lng||null})),
+      points: builderSelectedPoints.map(p => ({
+        name: p.name, 
+        input: p.originalInput, 
+        lat: (p.lat !== null && p.lat !== undefined) ? Number(p.lat) : null, 
+        lng: (p.lng !== null && p.lng !== undefined) ? Number(p.lng) : null
+      })),
       distance: "—", time: "—", stopsCount: builderSelectedPoints.length, 
       polyline: "",
       mapsUrl: mapsUrl,
@@ -2170,45 +2215,50 @@ window.renderDriverDailyRoutePoints = function() {
   // We use similar styling to fleet route sorting, but adapted
   points.forEach((pt, idx) => {
     let div = document.createElement('div');
-    div.style.cssText = "display: flex; align-items: center; gap: 8px; padding: 10px; background: var(--pr-bg); border-radius: 6px; border: 1px solid var(--pr-border); cursor: grab;";
-    div.draggable = true;
+    div.style.cssText = "display: flex; align-items: center; gap: 8px; padding: 10px; background: var(--pr-bg); border-radius: 6px; border: 1px solid var(--pr-border); cursor: grab; touch-action: pan-y;";
     
-    div.ondragstart = (e) => {
-      window.driverRouteDragSourceIndex = idx;
-      div.style.opacity = '0.5';
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/html", div.innerHTML);
-    };
+    // Sênior Fix: Draggable bloqueia scroll no mobile. Desabilitamos se for touch.
+    const isTouch = isTouchDevice();
+    div.draggable = !isTouch;
     
-    div.ondragover = (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      div.style.border = '2px dashed var(--pr-blue-mid)';
-    };
-    
-    div.ondragleave = (e) => {
-      div.style.border = '1px solid var(--pr-border)';
-    };
-    
-    div.ondrop = (e) => {
-      e.preventDefault();
-      div.style.border = '1px solid var(--pr-border)';
-      let targetIndex = idx;
-      let sourceIndex = window.driverRouteDragSourceIndex;
+    if (!isTouch) {
+      div.ondragstart = (e) => {
+        window.driverRouteDragSourceIndex = idx;
+        div.style.opacity = '0.5';
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/html", div.innerHTML);
+      };
       
-      if (sourceIndex !== targetIndex) {
-        let tempSequence = [...window.tempDriverRouteSequence];
-        let movedItem = tempSequence.splice(sourceIndex, 1)[0];
-        tempSequence.splice(targetIndex, 0, movedItem);
-        window.tempDriverRouteSequence = tempSequence;
-        window.renderDriverDailyRoutePoints();
-      }
-    };
-    
-    div.ondragend = (e) => {
-      div.style.opacity = '1';
-      div.style.border = '1px solid var(--pr-border)';
-    };
+      div.ondragover = (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        div.style.border = '2px dashed var(--pr-blue-mid)';
+      };
+      
+      div.ondragleave = (e) => {
+        div.style.border = '1px solid var(--pr-border)';
+      };
+      
+      div.ondrop = (e) => {
+        e.preventDefault();
+        div.style.border = '1px solid var(--pr-border)';
+        let targetIndex = idx;
+        let sourceIndex = window.driverRouteDragSourceIndex;
+        
+        if (sourceIndex !== targetIndex) {
+          let tempSequence = [...window.tempDriverRouteSequence];
+          let movedItem = tempSequence.splice(sourceIndex, 1)[0];
+          tempSequence.splice(targetIndex, 0, movedItem);
+          window.tempDriverRouteSequence = tempSequence;
+          window.renderDriverDailyRoutePoints();
+        }
+      };
+      
+      div.ondragend = (e) => {
+        div.style.opacity = '1';
+        div.style.border = '1px solid var(--pr-border)';
+      };
+    }
 
     let numb = document.createElement('div');
     numb.style.cssText = "background: var(--pr-blue-mid); color: #fff; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold;";
@@ -2221,6 +2271,7 @@ window.renderDriverDailyRoutePoints = function() {
     let handle = document.createElement('div');
     handle.style.cssText = "color: var(--pr-text-muted); cursor: grab; font-size: 14px;";
     handle.innerHTML = "☰";
+    if (isTouch) handle.style.opacity = '0.3'; // Visual feedback that drag is disabled on mobile for scroll
 
     div.appendChild(numb);
     div.appendChild(name);
@@ -2243,7 +2294,7 @@ window.startDriverDailyRoute = function() {
   let mapsUrl = `https://www.google.com/maps/dir/?api=1`;
   
   // Last point is destination
-  const getFormat = (p) => (p.lat && p.lng) ? `${p.lat},${p.lng}` : encodeURIComponent(p.input || p.name);
+  const getFormat = (p) => (p.lat !== null && p.lat !== undefined && p.lng !== null && p.lng !== undefined) ? `${p.lat},${p.lng}` : encodeURIComponent(p.input || p.name);
   const lastP = window.tempDriverRouteSequence[window.tempDriverRouteSequence.length - 1];
   const wpUrls = window.tempDriverRouteSequence.slice(0, -1).map(getFormat);
   
@@ -2771,7 +2822,7 @@ window.fpSaveScheduledRoute = async function() {
     const scheduledDate = new Date(year, month - 1, day, hour, minute);
 
     // Montar link do Google Maps
-    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
+    const getDeepFormat = (loc) => (loc.lat !== null && loc.lat !== undefined && loc.lng !== null && loc.lng !== undefined) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
     const lastP = window._fpSchedulePoints[window._fpSchedulePoints.length - 1];
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
     if (window._fpSchedulePoints.length > 1) {
@@ -2781,7 +2832,12 @@ window.fpSaveScheduledRoute = async function() {
 
     // Salvar na subcollection do motorista
     await addDoc(collection(db, "users", driverUid, "scheduledRoutes"), {
-      points: window._fpSchedulePoints.map(p => ({ name: p.name, input: p.originalInput, lat: p.lat || null, lng: p.lng || null })),
+      points: window._fpSchedulePoints.map(p => ({ 
+        name: p.name, 
+        input: p.originalInput, 
+        lat: (p.lat !== null && p.lat !== undefined) ? Number(p.lat) : null, 
+        lng: (p.lng !== null && p.lng !== undefined) ? Number(p.lng) : null 
+      })),
       stopsCount: window._fpSchedulePoints.length,
       mapsUrl: mapsUrl,
       note: note,
@@ -3295,7 +3351,7 @@ window.fpSaveEditSchedule = async function() {
   btn.style.pointerEvents = 'none';
 
   try {
-    const getDeepFormat = (loc) => (loc.lat && loc.lng) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
+    const getDeepFormat = (loc) => (loc.lat !== null && loc.lat !== undefined && loc.lng !== null && loc.lng !== undefined) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
     const lastP = window._editSchedPoints[window._editSchedPoints.length - 1];
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
     if (window._editSchedPoints.length > 1) {
@@ -3305,7 +3361,12 @@ window.fpSaveEditSchedule = async function() {
 
     const schedRef = doc(db, "users", window._editSchedDriverUid, "scheduledRoutes", window._editSchedId);
     await updateDoc(schedRef, {
-      points: window._editSchedPoints.map(p => ({ name: p.name, input: p.originalInput, lat: p.lat || null, lng: p.lng || null })),
+      points: window._editSchedPoints.map(p => ({ 
+        name: p.name, 
+        input: p.originalInput, 
+        lat: (p.lat !== null && p.lat !== undefined) ? Number(p.lat) : null, 
+        lng: (p.lng !== null && p.lng !== undefined) ? Number(p.lng) : null 
+      })),
       stopsCount: window._editSchedPoints.length,
       mapsUrl: mapsUrl
     });

@@ -1548,3 +1548,96 @@ body {
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   border-color: var(--pr-blue-light) !important;
 }
+
+/* ROUTE BUILDER SEQUENCE ITEMS (Sênior UI) */
+.route-sequence-item {
+  display: flex;
+  align-items: center;
+  background: var(--pr-surface);
+  border: 1px solid var(--pr-border);
+  padding: 8px 12px;
+  border-radius: 10px;
+  gap: 12px;
+  transition: all 0.2s ease;
+  margin-bottom: 6px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  position: relative;
+}
+
+.route-sequence-item:hover {
+  border-color: var(--pr-blue-mid);
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.route-sequence-item.dragging {
+  opacity: 0.4;
+  scale: 0.98;
+  border: 2px dashed var(--pr-blue-mid);
+}
+
+.route-sequence-item .badge {
+  background: var(--pr-blue-dark);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(13, 72, 123, 0.3);
+}
+
+.route-sequence-item .name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pr-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--pr-text-muted);
+  font-size: 18px;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+}
+
+.drag-handle:hover {
+  color: var(--pr-blue-dark);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.remove-point-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(224, 102, 102, 0.1);
+  color: #e06666;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.remove-point-btn:hover {
+  background: #e06666;
+  color: #fff;
+  transform: scale(1.1);
+}
+
