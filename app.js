@@ -90,6 +90,24 @@ function escapeHTML(str) {
 }
 
 /**
+ * Utilitário Sênior: Extrai coordenadas de uma URL do Google Maps (fallback client-side).
+ */
+window.extractCoordsFromUrl = function(url) {
+  if (!url || typeof url !== 'string') return null;
+  const patterns = [
+    /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/
+  ];
+  for (const p of patterns) {
+    const match = url.match(p);
+    if (match) return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+  }
+  return null;
+};
+
+/**
  * Utilitário Sênior: Formata um local para uso em URLs do Google Maps (Directions/Search).
  * Prioriza coordenadas para evitar ambiguidades e filtra links brutos.
  */
@@ -97,9 +115,19 @@ window.formatMapsLocation = function(loc) {
   if (!loc) return '';
   
   // 1. Prioridade Máxima: Coordenadas (lat,lng)
-  // Verifica se lat/lng existem no objeto raiz ou dentro de um sub-objeto coords
-  const lat = loc.lat ?? loc.coords?.lat;
-  const lng = loc.lng ?? loc.coords?.lng;
+  let lat = loc.lat ?? loc.coords?.lat;
+  let lng = loc.lng ?? loc.coords?.lng;
+  
+  const input = loc.originalInput || loc.input || '';
+
+  // Se não tem coords, tenta extrair do input se for um link
+  if ((lat === null || lat === undefined) && input.includes('http')) {
+    const extracted = window.extractCoordsFromUrl(input);
+    if (extracted) {
+      lat = extracted.lat;
+      lng = extracted.lng;
+    }
+  }
   
   if (lat !== null && lat !== undefined && lng !== null && lng !== undefined) {
     return `${lat},${lng}`;
@@ -107,7 +135,6 @@ window.formatMapsLocation = function(loc) {
   
   // 2. Fallback para Texto (Nome ou Endereço)
   const name = loc.name || '';
-  const input = loc.originalInput || loc.input || '';
   
   // Detecta se o input é uma URL (não queremos mandar uma URL como waypoint)
   const isUrl = (str) => {
@@ -115,12 +142,12 @@ window.formatMapsLocation = function(loc) {
     return str.startsWith('http') || str.includes('google.com/maps') || str.includes('goo.gl/maps');
   };
 
-  // Se o input original for um link, preferimos usar o nome resolvido
+  // Se o input original for um link e não conseguimos extrair coords, preferimos usar o nome
   if (isUrl(input)) {
     return encodeURIComponent(name || 'Local');
   }
   
-  // Se for um endereço de texto, usamos o input (geralmente mais preciso que o nome customizado)
+  // Se for um endereço de texto, usamos o input
   if (input && input.length > 3) {
     return encodeURIComponent(input);
   }
@@ -1572,9 +1599,18 @@ window.saveLocation = async function() {
   btn.textContent = 'Aguarde...';
   btn.style.pointerEvents = 'none';
 
-  let resolvedData = { lat: null, lng: null, expandedUrl: "", name: nameInput || linkInput };
+  let resolvedData = { lat: null, lng: null, expandedUrl: "", name: nameInput || "Local Adicionado" };
 
-  // Tentar resolver via backend (com fallback se estiver offline)
+  // Tentar extração client-side imediata se for link
+  if (linkInput.includes('http')) {
+    const clientCoords = window.extractCoordsFromUrl(linkInput);
+    if (clientCoords) {
+      resolvedData.lat = clientCoords.lat;
+      resolvedData.lng = clientCoords.lng;
+    }
+  }
+
+  // Tentar resolver via backend
   try {
     const idToken = await auth.currentUser.getIdToken();
     const res = await fetch(`${CONFIG.apiUrl}/api/resolve`, {
@@ -1589,16 +1625,14 @@ window.saveLocation = async function() {
     if(res.ok) {
       const data = await res.json();
       resolvedData = {
-        lat: (data.lat !== undefined && data.lat !== null) ? data.lat : null,
-        lng: (data.lng !== undefined && data.lng !== null) ? data.lng : null,
+        lat: (data.lat !== undefined && data.lat !== null) ? data.lat : resolvedData.lat,
+        lng: (data.lng !== undefined && data.lng !== null) ? data.lng : resolvedData.lng,
         expandedUrl: data.expandedUrl || "",
         name: nameInput || data.name || "Local Adicionado"
       };
     }
   } catch(e) {
-    console.warn("Backend offline ou erro na resolução — salvando endereço diretamente.", e.message);
-    // Fallback: salvar com o input bruto (sem resolução de link)
-    resolvedData.name = nameInput || "Local Adicionado";
+    console.warn("Backend offline ou erro na resolução.", e.message);
   }
 
   try {
@@ -1913,18 +1947,34 @@ window.filterBuilderLocations = function() {
 
 window.renderBuilderLocations = function() {
   const container = document.getElementById('builderAvailableList');
-  const term = document.getElementById('builderSearch').value.toLowerCase();
+  const term = document.getElementById('builderSearch').value.trim();
+  const lowerTerm = term.toLowerCase();
   container.innerHTML = '';
   
+  // Opção para adicionar input bruto se for link ou endereço longo
+  if (term.length > 5) {
+     const rawItem = document.createElement('div');
+     rawItem.className = 'loc-item';
+     rawItem.style.background = 'rgba(26,107,175,0.05)';
+     rawItem.style.border = '1px dashed var(--pr-blue-mid)';
+     rawItem.style.marginBottom = '6px';
+     rawItem.innerHTML = `
+       <div class="loc-dot dot-b" style="background:var(--pr-blue-mid); cursor:pointer;" onclick="window.addRawRoutePoint()">＋</div>
+       <div class="loc-info" style="cursor:pointer;" onclick="window.addRawRoutePoint()">
+         <div class="loc-name" style="color:var(--pr-blue-dark); font-weight:700;">Adicionar: "${escapeHTML(term.substring(0, 30))}${term.length > 30 ? '...' : ''}"</div>
+         <div class="loc-addr" style="font-size:9px;">Adicionar como nova parada direta</div>
+       </div>
+     `;
+     container.appendChild(rawItem);
+  }
+
   const filtered = allLocations.filter(loc => 
-    (loc.name||'').toLowerCase().includes(term) || 
-    (loc.originalInput||'').toLowerCase().includes(term)
+    (loc.name||'').toLowerCase().includes(lowerTerm) || 
+    (loc.originalInput||'').toLowerCase().includes(lowerTerm)
   );
 
   filtered.forEach(loc => {
-    // Esconder se já estiver selecionado
     if(builderSelectedPoints.find(p => p.id === loc.id)) return;
-
     const item = document.createElement('div');
     item.className = 'loc-item';
     item.style.marginBottom = '4px';
@@ -1939,9 +1989,66 @@ window.renderBuilderLocations = function() {
     container.appendChild(item);
   });
   
-  if (filtered.length === 0) {
-    container.innerHTML = `<div style="padding:10px;font-size:11px;color:var(--pr-text-muted);text-align:center;">Nenhum local encontrado para "${term}".</div>`;
+  if (filtered.length === 0 && term.length <= 5) {
+    container.innerHTML = `<div style="padding:10px;font-size:11px;color:var(--pr-text-muted);text-align:center;">Busque ou cole um link para adicionar.</div>`;
   }
+};
+
+window.addRawRoutePoint = async function() {
+  const term = document.getElementById('builderSearch').value.trim();
+  if (!term) return;
+
+  const btn = document.querySelector('.loc-dot.dot-b');
+  const originalText = btn ? btn.textContent : '＋';
+  if (btn) btn.textContent = '⏳';
+
+  const newPoint = {
+    id: 'raw-' + Date.now(),
+    name: term.includes('http') ? 'Local via Link' : term,
+    originalInput: term,
+    lat: null, 
+    lng: null
+  };
+
+  // 1. Tenta extração local imediata
+  const clientCoords = window.extractCoordsFromUrl(term);
+  if (clientCoords) {
+    newPoint.lat = clientCoords.lat;
+    newPoint.lng = clientCoords.lng;
+  }
+
+  // 2. Se for link e não pegou coords, tenta o backend (Senior resolution)
+  if (term.includes('http') && (!newPoint.lat || !newPoint.lng)) {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const res = await fetch(`${CONFIG.apiUrl}/api/resolve`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ url: term })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.lat && data.lng) {
+          newPoint.lat = data.lat;
+          newPoint.lng = data.lng;
+          if (data.name) newPoint.name = data.name;
+        }
+      }
+    } catch (e) {
+      console.warn("Falha ao resolver link em tempo real no builder", e);
+    }
+  }
+
+  builderSelectedPoints.push(newPoint);
+  document.getElementById('builderSearch').value = '';
+  if (btn) btn.textContent = originalText;
+  
+  renderBuilderSequence();
+  renderBuilderLocations();
+  showToast("Parada adicionada diretamente.", "success");
 };
 
 window.addRoutePoint = function(id) {
@@ -2030,14 +2137,20 @@ window.renderBuilderSequence = function() {
     item.setAttribute('ondragend', `handleBuilderDragEnd(event)`);
 
     item.innerHTML = `
-      <div class="drag-handle" title="Arraste para reordenar">☰</div>
+      <div class="drag-handle" title="Arraste para reordenar">⠿</div>
       <div class="badge">${i + 1}</div>
       <div class="name" title="${escapeHTML(loc.name || loc.originalInput)}">
         ${escapeHTML(loc.name || loc.originalInput)}
       </div>
-      <button class="remove-point-btn" onclick="removeRoutePoint(${i})" title="Remover este ponto">
-        ✕
-      </button>
+      <div class="sequence-actions">
+        <div class="move-btns">
+          <button class="move-btn" onclick="moveRoutePoint(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Subir">▲</button>
+          <button class="move-btn" onclick="moveRoutePoint(${i}, 1)" ${i === builderSelectedPoints.length - 1 ? 'disabled' : ''} title="Descer">▼</button>
+        </div>
+        <button class="remove-point-btn" onclick="removeRoutePoint(${i})" title="Remover este ponto">
+          ✕
+        </button>
+      </div>
     `;
     container.appendChild(item);
   });
@@ -2698,11 +2811,6 @@ function fpLoadScheduledRoutes(driverUid) {
             📍 ${stopCount} parada${stopCount !== 1 ? 's' : ''}
             ${status === 'scheduled' ? ' · Toque para editar' : ' · Toque para detalhes'}
           </span>
-          <div style="display:flex; gap:4px;">
-            ${status === 'scheduled' ? `
-              <button onclick="event.stopPropagation(); window.fpSendScheduledNow('${schedId}')" style="background:#27ae60; color:#fff; border:none; padding:5px 10px; border-radius:6px; font-size:10px; font-weight:600; cursor:pointer; font-family:var(--font-main);">📨 Enviar</button>
-            ` : ''}
-            <button onclick="event.stopPropagation(); window.fpDeleteScheduled('${schedId}')" style="background:var(--pr-bg); color:var(--pr-text-muted); border:1px solid var(--pr-border); padding:5px 8px; border-radius:6px; font-size:10px; cursor:pointer; font-family:var(--font-main);">🗑</button>
           </div>
         </div>
       `;
@@ -2773,18 +2881,32 @@ function fpRenderScheduleSequence() {
 // Renderizar locais disponíveis no modal de agendamento
 function fpRenderScheduleLocations() {
   const container = document.getElementById('schedAvailableList');
-  const term = (document.getElementById('schedLocSearch').value || '').toLowerCase();
+  const term = (document.getElementById('schedLocSearch').value || '').trim();
+  const lowerTerm = term.toLowerCase();
   container.innerHTML = '';
 
+  // Opção para adicionar input bruto no agendamento
+  if (term.length > 5) {
+     const rawItem = document.createElement('div');
+     rawItem.className = 'loc-item';
+     rawItem.style.cssText = 'background:rgba(26,107,175,0.05); border:1px dashed var(--pr-blue-mid); margin-bottom:6px; padding:6px 10px;';
+     rawItem.innerHTML = `
+       <div class="loc-dot dot-b" style="background:var(--pr-blue-mid); cursor:pointer;" onclick="window.fpAddRawSchedPoint()">＋</div>
+       <div class="loc-info" style="cursor:pointer;" onclick="window.fpAddRawSchedPoint()">
+         <div class="loc-name" style="color:var(--pr-blue-dark); font-weight:700;">Adicionar: "${escapeHTML(term.substring(0, 30))}"</div>
+         <div class="loc-addr" style="font-size:9px;">Parada direta via link ou endereço</div>
+       </div>
+     `;
+     container.appendChild(rawItem);
+  }
+
   const filtered = allLocations.filter(loc =>
-    (loc.name || '').toLowerCase().includes(term) ||
-    (loc.originalInput || '').toLowerCase().includes(term)
+    (loc.name || '').toLowerCase().includes(lowerTerm) ||
+    (loc.originalInput || '').toLowerCase().includes(lowerTerm)
   );
 
   filtered.forEach(loc => {
-    // Esconder se já estiver selecionado
     if (window._fpSchedulePoints.find(p => p.id === loc.id)) return;
-
     const item = document.createElement('div');
     item.className = 'loc-item';
     item.style.cssText = 'margin-bottom:4px; padding:6px 10px;';
@@ -2797,11 +2919,31 @@ function fpRenderScheduleLocations() {
     `;
     container.appendChild(item);
   });
-
-  if (filtered.length === 0) {
+  
+  if (filtered.length === 0 && term.length <= 5) {
     container.innerHTML = '<div style="padding:10px; font-size:11px; color:var(--pr-text-muted); text-align:center;">Nenhum local encontrado.</div>';
   }
 }
+
+window.fpAddRawSchedPoint = function() {
+  const term = document.getElementById('schedLocSearch').value.trim();
+  if (!term) return;
+  const newPoint = {
+    id: 'raw-' + Date.now(),
+    name: term.includes('http') ? 'Local via Link' : term,
+    originalInput: term,
+    lat: null, lng: null
+  };
+  const coords = window.extractCoordsFromUrl(term);
+  if (coords) {
+    newPoint.lat = coords.lat;
+    newPoint.lng = coords.lng;
+  }
+  window._fpSchedulePoints.push(newPoint);
+  document.getElementById('schedLocSearch').value = '';
+  fpRenderScheduleSequence();
+  fpRenderScheduleLocations();
+};
 
 window.fpFilterScheduleLocations = function() {
   fpRenderScheduleLocations();
@@ -3333,12 +3475,29 @@ window.fpEditSchedRemove = function(index) {
 
 function fpRenderEditSchedAvailable() {
   const container = document.getElementById('editSchedAvailList');
-  const term = (document.getElementById('editSchedSearch').value || '').toLowerCase();
+  const term = (document.getElementById('editSchedSearch').value || '').trim();
+  const lowerTerm = term.toLowerCase();
   container.innerHTML = '';
 
+  // Opção para adicionar input bruto na edição
+  if (term.length > 5) {
+     const rawItem = document.createElement('div');
+     rawItem.className = 'loc-item';
+     rawItem.style.cssText = 'background:rgba(26,107,175,0.05); border:1px dashed var(--pr-blue-mid); margin-bottom:6px; padding:6px 10px; cursor:pointer;';
+     rawItem.onclick = () => window.fpAddRawEditPoint();
+     rawItem.innerHTML = `
+       <div class="loc-dot dot-b" style="background:var(--pr-blue-mid);">＋</div>
+       <div class="loc-info">
+         <div class="loc-name" style="color:var(--pr-blue-dark); font-weight:700;">Adicionar: "${escapeHTML(term.substring(0, 30))}"</div>
+         <div class="loc-addr" style="font-size:9px;">Parada direta via link ou endereço</div>
+       </div>
+     `;
+     container.appendChild(rawItem);
+  }
+
   const filtered = allLocations.filter(loc =>
-    (loc.name || '').toLowerCase().includes(term) ||
-    (loc.originalInput || '').toLowerCase().includes(term)
+    (loc.name || '').toLowerCase().includes(lowerTerm) ||
+    (loc.originalInput || '').toLowerCase().includes(lowerTerm)
   );
 
   const selectedIds = new Set(window._editSchedPoints.map(p => p.name));
@@ -3371,10 +3530,30 @@ function fpRenderEditSchedAvailable() {
     container.appendChild(item);
   });
 
-  if (filtered.length === 0) {
+  if (filtered.length === 0 && term.length <= 5) {
     container.innerHTML = '<div style="padding:8px; font-size:10px; color:var(--pr-text-muted); text-align:center;">Nenhum local encontrado.</div>';
   }
 }
+
+window.fpAddRawEditPoint = function() {
+  const term = document.getElementById('editSchedSearch').value.trim();
+  if (!term) return;
+  const newPoint = {
+    id: 'raw-' + Date.now(),
+    name: term.includes('http') ? 'Local via Link' : term,
+    originalInput: term,
+    lat: null, lng: null
+  };
+  const coords = window.extractCoordsFromUrl(term);
+  if (coords) {
+    newPoint.lat = coords.lat;
+    newPoint.lng = coords.lng;
+  }
+  window._editSchedPoints.push(newPoint);
+  document.getElementById('editSchedSearch').value = '';
+  fpRenderEditSchedStops();
+  fpRenderEditSchedAvailable();
+};
 
 window.fpFilterEditSchedLocations = function() {
   fpRenderEditSchedAvailable();

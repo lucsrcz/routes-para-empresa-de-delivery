@@ -1604,20 +1604,61 @@ body {
 .drag-handle {
   cursor: grab;
   color: var(--pr-text-muted);
-  font-size: 18px;
+  font-size: 20px;
   padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: color 0.2s;
+  user-select: none;
+  opacity: 0.5;
 }
 
 .drag-handle:hover {
   color: var(--pr-blue-dark);
+  opacity: 1;
 }
 
 .drag-handle:active {
   cursor: grabbing;
+}
+
+.sequence-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.move-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.move-btn {
+  background: var(--pr-bg-light);
+  border: 1px solid var(--pr-border);
+  color: var(--pr-text-muted);
+  font-size: 8px;
+  width: 20px;
+  height: 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.move-btn:hover:not(:disabled) {
+  background: var(--pr-blue-soft);
+  color: var(--pr-blue-dark);
+  border-color: var(--pr-blue-mid);
+}
+
+.move-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .remove-point-btn {
