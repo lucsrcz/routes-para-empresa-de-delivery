@@ -1,4 +1,4 @@
-﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 import { getFirestore, collection, addDoc, getDocs, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch, increment } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 import { getDatabase, ref as rtdbRef, set as rtdbSet, onValue, off } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
@@ -49,6 +49,21 @@ function getInitials(name) {
   if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
+
+// Função para sincronizar as iniciais no MODAL (Prioridade para Nome Completo)
+window.syncProfileInitials = () => {
+  const nameInput = document.getElementById('profileName');
+  const circle = document.getElementById('profileInitialsCircle');
+  
+  const nameVal = nameInput ? nameInput.value.trim() : "";
+  
+  // No modal, o usuário quer que o NOME COMPLETO tenha prioridade total.
+  const textToProcess = nameVal || (currentUser ? currentUser.email : "") || "--";
+  
+  if (circle) {
+    circle.textContent = getInitials(textToProcess);
+  }
+};
 
 // Tema: persistência entre login e app
 window.toggleAppTheme = function() {
@@ -266,8 +281,6 @@ async function applyRoleUI() {
     if (adminArea) adminArea.style.display = 'flex';
     if (dailyRouteCard) {
       dailyRouteCard.style.display = '';
-      // Suba mais 5px (Total 45px de subida para Admin: Desktop: 80-45=35, Mobile: 75-45=30)
-      dailyRouteCard.style.top = (window.innerWidth <= 520) ? '30px' : '35px';
     }
     if (adminFleetCard) adminFleetCard.style.display = 'none';
     const adminMsg = document.getElementById('adminCardMessage');
@@ -306,24 +319,25 @@ async function applyRoleUI() {
         querySnapshot.forEach((docSnap) => {
           const u = docSnap.data();
           if (u.role === "driver") {
-            const displayName = u.apelido || u.nome || 'Sem nome';
+            const displayName = u.apelido || u.nome || 'Motorista sem nome';
             const initial = displayName.charAt(0).toUpperCase();
-            window._fleetDrivers.push({uid: docSnap.id, nome: u.nome, email: u.email, apelido: u.apelido || ''});
+            window._fleetDrivers.push({uid: docSnap.id, nome: u.nome, apelido: u.apelido || '', email: u.email});
             
             const label = document.createElement('label');
             label.className = 'bdr-item';
             label.dataset.uid = docSnap.id;
             label.dataset.name = displayName;
             
+            // Premium style for driver selection
             label.innerHTML = `
               <input type="radio" name="driverRadio" value="${docSnap.id}" class="bdr-radio"/>
-              <div class="bdr-avatar">${initial}</div>
+              <div class="bdr-avatar" style="background: linear-gradient(135deg, var(--pr-blue-dark), var(--pr-blue-mid)); color: #fff; font-weight: 800;">${initial}</div>
               <div class="bdr-info">
-                <div class="bdr-name" style="font-size:15px; font-weight:bold; color:#1A6BAF;">${escapeHTML(displayName)}</div>
-                <div class="bdr-email" style="font-size:12px; color:#7f8c8d;">${escapeHTML(u.email || '')}</div>
+                <div class="bdr-name" style="font-size:15px; font-weight:700; color:var(--pr-text);">${escapeHTML(displayName)}</div>
+                <div class="bdr-email" style="font-size:11px; color:var(--pr-text-muted);">${escapeHTML(u.email || '')}</div>
               </div>
-              <div style="flex-shrink: 0; display:flex; align-items:center; gap:8px;">
-                <span style="font-size: 10px; background: #27ae60; color: #fff; padding: 4px 12px; border-radius: 12px; font-weight: bold;">Ativo</span>
+              <div style="flex-shrink: 0; display:flex; align-items:center; gap:6px;">
+                <div style="width: 8px; height: 8px; border-radius: 50%; background: #27ae60; box-shadow: 0 0 8px rgba(39, 174, 96, 0.4);"></div>
                 <span class="bdr-dot"></span>
               </div>
             `;
@@ -366,7 +380,6 @@ async function applyRoleUI() {
     if (adminArea) adminArea.style.display = 'none';
     if (dailyRouteCard) {
       dailyRouteCard.style.display = '';
-      dailyRouteCard.style.top = (window.innerWidth <= 520) ? '75px' : '80px';
     }
     if (adminFleetCard) adminFleetCard.style.display = 'none'; // Hide fleet card
     
@@ -426,16 +439,13 @@ function loadDriverMissions() {
       const status = data.status || "Pendente";
       
       let stColor = status === "Pendente" ? "#e67e22" : (status === "Concluída" ? "#27ae60" : (status === "Em Rota" ? "#1A6BAF" : "#2196f3"));
-      let stIcon = "";
       
       const stopsCount = data.stopsCount || 0;
-      const distance = data.distance || "—";
-      const time = data.time || "—";
       const mapsUrl = sanitizeUrl(data.mapsUrl);
       
       // Track first pending/active route for sidebar preview
       if ((status === "Pendente" || status === "Em Rota") && !pendingOrActiveRoute) {
-        pendingOrActiveRoute = { data, missionId, status, stColor, stIcon };
+        pendingOrActiveRoute = { data, missionId, status, stColor };
       }
 
       // Build stop names
@@ -483,10 +493,7 @@ function loadDriverMissions() {
         const d = pendingOrActiveRoute.data;
         const mid = pendingOrActiveRoute.missionId;
         const stc = pendingOrActiveRoute.stColor;
-        const sti = pendingOrActiveRoute.stIcon;
         const stopNames = (d.points || []).map(p => p.name || 'Local').join(' → ');
-        const dist = d.distance || '—';
-        const tm = d.time || '—';
         activeRouteContainer.innerHTML = `
           <div style="background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 10px; padding: 12px; border-left: 3px solid ${stc};">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -517,7 +524,7 @@ function loadDriverMissions() {
     if (dailyRouteCard) {
       if (pendingOrActiveRoute) {
         window.currentActiveRouteUrl = pendingOrActiveRoute.data.mapsUrl;
-        window.currentActiveMissionId = pendingOrActiveRoute.missionId; // Save ID to update status if opened from here
+        window.currentActiveMissionId = pendingOrActiveRoute.missionId; 
         document.getElementById('drcDate').textContent = pendingOrActiveRoute.data.stopsCount + " Paradas";
         document.getElementById('drcLinkText').textContent = pendingOrActiveRoute.data.mapsUrl ? "maps.app.goo.gl" : "Sem link";
       } else {
@@ -587,10 +594,6 @@ window.finishMission = async function(missionId) {
         if (expectedBox) expectedBox.style.display = 'block';
         if (expWeight) expWeight.textContent = `${data.expectedWeight || 0} kg`;
         if (expValue) expValue.textContent = `R$ ${(data.expectedValue || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
-        
-        // Auto-preencher os campos do motorista se desejar, ou deixar em branco para conferência
-        // document.getElementById('deliveryWeight').value = data.expectedWeight || '';
-        // document.getElementById('deliveryValue').value = data.expectedValue || '';
       }
     }
   } catch (e) {
@@ -936,20 +939,24 @@ window.openProfileModal = async function() {
   
   const modal = document.getElementById('profileModal');
   const nameInput = document.getElementById('profileName');
-  const nickInput = document.getElementById('profileNickname');
   const emailDisplay = document.getElementById('profileEmailDisplay');
   const circle = document.getElementById('profileInitialsCircle');
   
   if (modal) modal.classList.add('active');
+  
+  // Inicializa a sincronização
+  window.syncProfileInitials();
   
   try {
     const userSnap = await getDoc(doc(db, "users", currentUser.uid));
     if (userSnap.exists()) {
       const u = userSnap.data();
       if (nameInput) nameInput.value = u.nome || "";
-      if (nickInput) nickInput.value = u.apelido || "";
       if (emailDisplay) emailDisplay.textContent = currentUser.email;
-      if (circle) circle.textContent = getInitials(u.nome || currentUser.displayName || currentUser.email);
+      window.syncProfileInitials();
+    } else {
+      if (emailDisplay) emailDisplay.textContent = currentUser.email;
+      window.syncProfileInitials();
     }
   } catch (e) {
     console.error("Erro ao abrir perfil:", e);
@@ -965,25 +972,22 @@ window.updateProfileData = async function() {
   if (!currentUser) return;
   
   const nome = document.getElementById('profileName').value.trim();
-  const apelido = document.getElementById('profileNickname').value.trim();
   
   try {
     // Atualizar no Firestore
     await updateDoc(doc(db, "users", currentUser.uid), {
-      nome: nome,
-      apelido: apelido
+      nome: nome
     });
 
     // Atualizar cache global
     if (window.currentUserData) {
       window.currentUserData.nome = nome;
-      window.currentUserData.apelido = apelido;
     }
 
     // Atualizar iniciais no topo
     const navAvatar = document.querySelector('.nav-avatar');
     if (navAvatar) {
-      navAvatar.textContent = getInitials(apelido || nome || currentUser.email || 'A');
+      navAvatar.textContent = getInitials(nome || currentUser.email || 'A');
     }
     
     alert("Perfil atualizado com sucesso!");
@@ -993,15 +997,12 @@ window.updateProfileData = async function() {
   }
 };
 
-// Removido duplicata do renameDriver
-
 // ══════════════════════════════════════════════════════════
 // AUTENTICAÇÃO E CONFIGURAÇÃO DE ROLE
 // ══════════════════════════════════════════════════════════
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
-    // Somente redirecionar se realmente não houver usuário após um pequeno delay para evitar loops
     setTimeout(() => {
       if (!auth.currentUser) {
         console.log("Nenhum usuário detectado. Redirecionando para login...");
@@ -1018,7 +1019,6 @@ onAuthStateChanged(auth, async (user) => {
       let udata = null;
       
       if (!userSnap.exists()) {
-        // Fallback for completely missing document (like SSO login without invite)
         window.userRole = "pending";
         window.adminId = null;
         await setDoc(userRef, {
@@ -1057,7 +1057,7 @@ onAuthStateChanged(auth, async (user) => {
         // Atualiza iniciais no avatar da navegação
         const navAvatar = document.getElementById('navAvatar');
         if (navAvatar) {
-          navAvatar.textContent = getInitials(udata.apelido || udata.nome || currentUser.displayName || currentUser.email || 'A');
+          navAvatar.textContent = getInitials(udata.nome || currentUser.displayName || currentUser.email || 'A');
         }
       }
 
@@ -1680,6 +1680,10 @@ window.openBuilderModal = function() {
   document.getElementById('builderSearch').value = '';
   const ds = document.getElementById('builderDriverSearch');
   if (ds) ds.value = '';
+  
+  // Reset stages
+  window.showRouteSetupStage();
+  
   document.getElementById('builderModal').classList.add('active');
   renderBuilderSequence();
   renderBuilderLocations();
@@ -1698,6 +1702,30 @@ window.openBuilderModal = function() {
   
   if (window.filterBuilderDrivers) {
     window.filterBuilderDrivers();
+  }
+};
+
+window.showDriverSelectionStage = function() {
+  if (builderSelectedPoints.length === 0) {
+    return alert("Adicione pelo menos um local à rota antes de escolher o motorista.");
+  }
+  
+  const stage1 = document.getElementById('builderStage1');
+  const stage2 = document.getElementById('builderStage2');
+  if (stage1 && stage2) {
+    stage1.style.display = 'none';
+    stage2.style.display = 'flex';
+  }
+  
+  if (window.filterBuilderDrivers) window.filterBuilderDrivers();
+};
+
+window.showRouteSetupStage = function() {
+  const stage1 = document.getElementById('builderStage1');
+  const stage2 = document.getElementById('builderStage2');
+  if (stage1 && stage2) {
+    stage1.style.display = 'flex';
+    stage2.style.display = 'none';
   }
 };
 
@@ -4230,7 +4258,10 @@ const _spyRoleCheckInterval = setInterval(() => {
     if (!bar) return;
     bar.innerHTML = '';
 
-    const entries = Object.entries(driversData);
+    const entries = Object.entries(driversData).filter(([uid]) => {
+      return (window._fleetDrivers || []).some(d => d.uid === uid);
+    });
+
     if (entries.length === 0) {
       bar.innerHTML = '<span style="font-size:11px;color:var(--pr-text-muted);">Nenhum motorista online agora</span>';
       document.getElementById('spy-status-txt').textContent = 'Nenhum motorista online';
@@ -4241,7 +4272,7 @@ const _spyRoleCheckInterval = setInterval(() => {
 
     entries.forEach(([uid, data], i) => {
       const color = colorForIndex(i);
-      // Prefer the fresh Firestore name (from cache) over stale RTDB name
+      // Use the fresh Firestore name (from cache)
       const cachedDriver = (window._fleetDrivers || []).find(d => d.uid === uid);
       const name = (cachedDriver && (cachedDriver.apelido || cachedDriver.nome)) || data.name || 'Motorista';
       const initial = name.charAt(0).toUpperCase();
@@ -4286,21 +4317,26 @@ const _spyRoleCheckInterval = setInterval(() => {
     if (!spyMap) return;
     const latlngs = [];
 
-    // Remove markers for drivers no longer present
+    // Remove markers for drivers no longer present or no longer in fleet
     Object.keys(spyMarkers).forEach(uid => {
-      if (!driversData[uid]) {
+      const cachedDriver = (window._fleetDrivers || []).find(d => d.uid === uid);
+      if (!driversData[uid] || !cachedDriver) {
         spyMap.removeLayer(spyMarkers[uid]);
         delete spyMarkers[uid];
       }
     });
 
-    Object.entries(driversData).forEach(([uid, data], i) => {
+    const entries = Object.entries(driversData).filter(([uid]) => {
+      return (window._fleetDrivers || []).some(d => d.uid === uid);
+    });
+
+    entries.forEach(([uid, data], i) => {
       if (!data.lat || !data.lng) return;
       const pos = [data.lat, data.lng];
       const color = colorForIndex(i);
-      // Prefer the fresh Firestore name (from cache) over stale RTDB name
-      const cachedDriver2 = (window._fleetDrivers || []).find(d => d.uid === uid);
-      const name = (cachedDriver2 && (cachedDriver2.apelido || cachedDriver2.nome)) || data.name || 'Motorista';
+      // Use the fresh Firestore name (from cache)
+      const cachedDriver = (window._fleetDrivers || []).find(d => d.uid === uid);
+      const name = (cachedDriver && (cachedDriver.apelido || cachedDriver.nome)) || data.name || 'Motorista';
       const initial = name.charAt(0).toUpperCase();
       const speed = data.speed || 0;
       const ago = timeAgo(data.ts || Date.now());

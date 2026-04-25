@@ -629,53 +629,55 @@
 
 <!-- BUILDER MODAL (Roteiro em Ordem) -->
 <div class="modal-overlay" id="builderModal" onclick="closeBuilderModal()">
-  <div class="modal-content" style="max-height: 85vh; height: 85vh; width: 95%; max-width: 500px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
-    <div class="modal-title" style="flex-shrink:0;">Configurar Rota Manual</div>
+  <div class="modal-content" style="max-height: 85vh; height: 85vh; width: 95%; max-width: 500px; display: flex; flex-direction: column; padding: 20px; overflow: hidden;" onclick="event.stopPropagation()">
     
-    <!-- SEÇÃO 1: Endereços Selecionados (scroll) -->
-    <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 8px; min-height: 0;">
-      <div class="text-dark-auto" style="font-size:12px; font-weight:700; margin-bottom:5px; flex-shrink:0;">Ordem da Rota (Revise e Ajuste):</div>
-      <div id="routeSequence" style="background:var(--pr-bg); border-radius:8px; padding:10px; overflow-y:auto; flex: 1; display:flex; flex-direction:column; gap:5px; min-height:0;">
-        <!-- Pontos da rota selecionada entram aqui -->
-      </div>
-    </div>
-
-    <!-- SEÇÃO 2: Locais Disponíveis (scroll) -->
-    <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 8px; min-height: 0;">
-      <input type="text" class="modal-input" id="builderSearch" placeholder="🔍 Pesquisar para adicionar..." style="margin-bottom:6px; height: 34px; font-size:12px; flex-shrink: 0;" onkeyup="filterBuilderLocations()"/>
-      <div class="loc-list" id="builderAvailableList" style="overflow-y: auto; flex: 1; padding: 5px; margin: 0 -5px; min-height:0;">
-        <!-- Itens renderizados no JS -->
-      </div>
-    </div>
-    
-    <!-- SEÇÃO 3: Área de Despacho para Motorista (scroll) — Apenas Admin -->
-    <div id="adminDriverArea" style="display:none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; margin-bottom: 8px;">
-      <div class="text-dark-auto" style="font-size:12px; font-weight:700; margin-bottom:5px; flex-shrink:0;">📨 Enviar rota para:</div>
+    <!-- ETAPA 1: Configuração da Rota -->
+    <div id="builderStage1" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+      <div class="modal-title" style="flex-shrink:0;">Configurar Rota Manual</div>
       
-      <!-- Campos de Peso e Valor -->
-      <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-shrink: 0;">
-        <div style="flex: 1;">
-          <label style="font-size: 11px; font-weight: 700; color: var(--pr-text-muted); display: block; margin-bottom: 4px;">Peso Total (kg)</label>
-          <input type="number" id="builderRouteWeight" class="modal-input" placeholder="0.00" step="0.1" style="height: 38px; font-size: 13px; margin-bottom: 0; border-radius: 10px;" />
-        </div>
-        <div style="flex: 1;">
-          <label style="font-size: 11px; font-weight: 700; color: var(--pr-text-muted); display: block; margin-bottom: 4px;">Valor Total (R$)</label>
-          <input type="number" id="builderRouteValue" class="modal-input" placeholder="0.00" step="0.01" style="height: 38px; font-size: 13px; margin-bottom: 0; border-radius: 10px;" />
+      <!-- SEÇÃO 1: Endereços Selecionados (scroll) -->
+      <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 8px; min-height: 0;">
+        <div class="text-dark-auto" style="font-size:12px; font-weight:700; margin-bottom:5px; flex-shrink:0;">Ordem da Rota (Revise e Ajuste):</div>
+        <div id="routeSequence" style="background:var(--pr-bg); border-radius:8px; padding:10px; overflow-y:auto; flex: 1; display:flex; flex-direction:column; gap:5px; min-height:0;">
+          <!-- Pontos da rota selecionada entram aqui -->
         </div>
       </div>
 
-      <input type="text" class="modal-input" id="builderDriverSearch" placeholder="🔍 Pesquisar motorista..." style="margin-bottom:6px; height: 34px; font-size:12px; flex-shrink: 0;" onkeyup="window.filterBuilderDrivers && window.filterBuilderDrivers()"/>
-      <div id="builderDriverList" style="background:var(--pr-bg); border-radius:8px; padding:10px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:5px; min-height:0;">
+      <!-- SEÇÃO 2: Locais Disponíveis (scroll) -->
+      <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 8px; min-height: 0;">
+        <input type="text" class="modal-input" id="builderSearch" placeholder="🔍 Pesquisar para adicionar..." style="margin-bottom:6px; height: 34px; font-size:12px; flex-shrink: 0;" onkeyup="filterBuilderLocations()"/>
+        <div class="loc-list" id="builderAvailableList" style="overflow-y: auto; flex: 1; padding: 5px; margin: 0 -5px; min-height:0;">
+          <!-- Itens renderizados no JS -->
+        </div>
+      </div>
+
+      <div class="modal-actions" style="margin-top:auto; display:flex; align-items:center; gap: 8px; flex-shrink:0;">
+        <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); closeBuilderModal()" style="flex: 0 0 auto; padding: 12px 18px; font-size: 12px; border-radius: 12px;">Voltar</button>
+        <button class="mbtn mbtn-save" style="flex:1; background: var(--pr-blue-dark); letter-spacing:.5px; font-size: 13px; font-weight: 700; padding: 12px 18px; border-radius: 12px;" onclick="window.showDriverSelectionStage()">Escolher Motorista</button>
+      </div>
+    </div>
+
+    <!-- ETAPA 2: Seleção de Motorista -->
+    <div id="builderStage2" style="display: none; flex-direction: column; flex: 1; overflow: hidden;">
+      <div class="modal-title" style="flex-shrink:0; display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 18px;">👤</span> Selecionar Motorista
+      </div>
+      
+      <div style="position: relative; margin-bottom: 10px; flex-shrink: 0;">
+        <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--pr-text-muted); font-size: 14px;">🔍</span>
+        <input type="text" class="modal-input" id="builderDriverSearch" placeholder="Buscar motorista pelo nome..." style="padding-left: 35px; height: 44px; font-size: 14px; border-radius: 12px; margin-bottom: 0;" onkeyup="window.filterBuilderDrivers && window.filterBuilderDrivers()"/>
+      </div>
+
+      <div id="builderDriverList" style="background:var(--pr-bg); border-radius:12px; padding:8px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:8px; min-height:0; border: 1px solid var(--pr-border);">
         <!-- Drivers rendered by JS -->
       </div>
-      <!-- Hidden select kept for compatibility -->
-      <select id="adminDriverSelect" style="display:none;"></select>
+      
+      <div class="modal-actions" style="margin-top:12px; display:flex; align-items:center; gap: 8px; flex-shrink:0;">
+        <button class="mbtn mbtn-cancel" onclick="window.showRouteSetupStage()" style="flex: 0 0 auto; padding: 12px 18px; font-size: 12px; border-radius: 12px;">Voltar</button>
+        <button id="mainGenerateBtn" class="mbtn mbtn-save" style="flex:1; background: var(--pr-accent); letter-spacing:.5px; font-size: 13px; font-weight: 700; padding: 12px 18px; border-radius: 12px;" onclick="event.stopPropagation(); generateManualRoute()">Enviar Rota</button>
+      </div>
     </div>
 
-    <div class="modal-actions" style="margin-top:12px; display:flex; align-items:center; gap: 8px; flex-shrink:0;">
-      <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); closeBuilderModal()" style="flex: 0 0 auto; padding: 10px 14px; font-size: 11px;">Voltar</button>
-      <button id="mainGenerateBtn" class="mbtn mbtn-save" style="flex:1; background:#1A6BAF; letter-spacing:.5px; font-size: 12px; padding: 10px 14px;" onclick="event.stopPropagation(); generateManualRoute()">🗺 Salvar Rota</button>
-    </div>
   </div>
 </div>
 
@@ -685,16 +687,16 @@
     <div class="modal-title" style="text-align: center; margin-bottom: 20px;">Tipo de Rota</div>
     <div style="display: flex; flex-direction: column; gap: 15px;">
       <div class="acard c1" style="margin: 0;" onclick="closeRouteChoiceModal(); alert('Funcionalidade de Rota Inteligente Otimizada (Google AI) será disponibilizada na próxima atualização!')">
-        <div class="acard-icon"></div>
+        <div class="acard-icon">⟳</div>
         <div class="acard-content">
-          <div class="acard-title">Frota Ativa</div>
+          <div class="acard-title">Automática</div>
           <div class="acard-desc">Otimização via IA</div>
         </div>
       </div>
       <div class="acard c1m" style="margin: 0;" onclick="closeRouteChoiceModal(); openBuilderModal()">
-        <div class="acard-icon"></div>
+        <div class="acard-icon">✏</div>
         <div class="acard-content">
-          <div class="acard-title">Espionar</div>
+          <div class="acard-title">Manual</div>
           <div class="acard-desc">Você define a ordem</div>
         </div>
       </div>
@@ -934,7 +936,7 @@
     
     <div style="display:flex; flex-direction:column; gap:18px; flex:1; overflow-y:auto; padding-right: 5px;">
       <!-- RESUMO DA CARGA (Enviado pelo Admin) -->
-      <div id="expectedCargoInfo" style="display:none; background:rgba(26,107,175,0.08); padding:15px; border-radius:18px; border:1px solid rgba(26,107,175,0.2); margin-bottom:5px;">
+      <div id="expectedCargoInfo" style="display:none; background:rgba(26,107,175,0.08); padding:15px; border-radius:18px; border:2px solid rgba(26,107,175,0.3); margin-bottom:5px;">
         <div style="font-size:11px; color:var(--pr-text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px;">Carga Programada</div>
         <div style="display:flex; gap:15px;">
           <div style="flex:1;">
@@ -1449,9 +1451,9 @@
 
 <!-- Modal: Perfil do Usuário -->
 <div id="profileModal" class="modal-overlay">
-  <div class="modal-card" style="max-width: 340px; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3);">
+  <div class="modal-card modal-content" style="max-width: 340px; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3); border: 1px solid var(--pr-border);">
     <!-- Header com Degradê Premium -->
-    <div style="background: linear-gradient(135deg, var(--pr-blue-dark) 0%, var(--pr-blue-mid) 100%); padding: 25px 20px; text-align: center; position: relative;">
+    <div style="background: linear-gradient(135deg, var(--pr-blue-dark) 0%, var(--pr-blue-mid) 100%); padding: 25px 20px; text-align: center; position: relative; border-bottom: 1px solid rgba(255,255,255,0.1);">
       <div id="profileInitialsCircle" style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); border: 2px solid #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 24px; font-weight: 800; margin: 0 auto 12px; backdrop-filter: blur(5px);">--</div>
       <div id="profileEmailDisplay" style="color: rgba(255,255,255,0.8); font-size: 11px; font-weight: 500;">email@exemplo.com</div>
       <button onclick="window.closeProfileModal()" style="position: absolute; top: 15px; right: 15px; background: rgba(255,255,255,0.1); border: none; color: #fff; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px;">✕</button>
@@ -1460,16 +1462,11 @@
     <div style="padding: 20px; background: var(--pr-surface);">
       <div style="margin-bottom: 15px;">
         <label style="display: block; font-size: 11px; font-weight: 700; color: var(--pr-text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Nome Completo</label>
-        <input type="text" id="profileName" class="modal-input" placeholder="Seu nome" style="height: 44px; border-radius: 12px; font-size: 14px; font-weight: 600;">
+        <input type="text" id="profileName" class="modal-input" placeholder="Seu nome" oninput="window.syncProfileInitials()" style="height: 44px; border-radius: 12px; font-size: 14px; font-weight: 600; border: 1px solid var(--pr-border);">
       </div>
       
-      <div style="margin-bottom: 20px;">
-        <label style="display: block; font-size: 11px; font-weight: 700; color: var(--pr-text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Apelido / Como quer ser chamado</label>
-        <input type="text" id="profileNickname" class="modal-input" placeholder="Ex: Lucas" style="height: 44px; border-radius: 12px; font-size: 14px; font-weight: 600;">
-      </div>
-
       <div style="display: flex; flex-direction: column; gap: 10px;">
-        <button class="mbtn mbtn-save" onclick="window.updateProfileData()" style="width: 100%; height: 44px; border-radius: 12px; font-weight: 700; font-size: 14px; background: #27ae60; border: none; color: #fff; cursor: pointer;">Salvar Alterações</button>
+        <button class="mbtn mbtn-save" onclick="window.updateProfileData()" style="width: 100%; height: 44px; border-radius: 12px; font-weight: 700; font-size: 14px; background: rgba(39, 174, 96, 0.1); border: 1.5px solid rgba(39, 174, 96, 0.2); color: #27ae60; cursor: pointer; transition: all 0.2s;">Salvar Alterações</button>
         <button onclick="handleLogout()" style="width: 100%; height: 44px; border-radius: 12px; font-weight: 700; font-size: 13px; background: rgba(231, 76, 60, 0.1); border: 1.5px solid rgba(231, 76, 60, 0.2); color: #e74c3c; cursor: pointer; transition: all 0.2s;">Sair da Conta</button>
       </div>
     </div>
@@ -1478,7 +1475,5 @@
 
 <!-- Scripts -->
 <script type="module" src="app.js?v=21"></script>
-</body>
-</html>
 </body>
 </html>

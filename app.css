@@ -158,8 +158,8 @@ body {
 .acard.c2 { background: linear-gradient(135deg, #0fb9b1, #20bf6b); color: #fff; border: none; }
 /* Pesquisar Locais - Soft Indigo */
 .acard.c3 { background: linear-gradient(135deg, #4b7bec, #3867d6); color: #fff; border: none; }
-/* Add Local Pessoal - Soft Violet */
-.acard.c4 { background: linear-gradient(135deg, #a55eea, #8854d0); color: #fff; border: none; }
+/* Add Local Pessoal - Secondary Blue */
+.acard.c4 { background: linear-gradient(135deg, #3A8CDA, #1A6BAF); color: #fff; border: none; }
 
 .dm .acard.c3, .dm .acard.c4 { border: none; }
 
@@ -252,6 +252,14 @@ body {
 .mp-key{font-size:9px;color:var(--pr-text-muted);}
 .mp-sep{width:1px;height:16px;background:var(--pr-border);}
 .dm .mp-val{color:var(--pr-blue-light);}
+.dm .map-pill {
+  background: linear-gradient(135deg, rgba(13, 72, 123, 0.95), rgba(8, 46, 82, 0.98));
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.dm .map-pill .text-dark-auto { color: #ffffff !important; }
 
 .map-badge{
   position:absolute;top:12px;right:12px;
@@ -532,7 +540,7 @@ body {
 /* DAILY ROUTE FLOATING CARD (WhatsApp Link Preview Style) */
 .daily-route-card {
   position: fixed;
-  top: 80px;
+  top: 35px;
   right: 16px;
   width: 260px;
   background: var(--pr-surface);
@@ -540,10 +548,16 @@ body {
   box-shadow: var(--pr-shadow);
   z-index: 1000;
   overflow: hidden;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, top 0.3s ease-in-out;
   font-family: var(--font-main);
   border: 1px solid var(--pr-border);
   animation: motivSlideIn 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (max-width: 768px) {
+  .daily-route-card {
+    top: 75px;
+  }
 }
 
 .daily-route-card:hover {
@@ -552,6 +566,7 @@ body {
 }
 .dm .drc-preview {
   background: linear-gradient(135deg, #0d487b, #082e52);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
 }
 .dm .daily-route-card {
   background: linear-gradient(135deg, rgba(13, 72, 123, 0.95), rgba(8, 46, 82, 0.98));
