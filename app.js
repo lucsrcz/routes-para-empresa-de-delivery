@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 import { getFirestore, collection, addDoc, getDocs, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch, increment } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
-import { getDatabase, ref as rtdbRef, set as rtdbSet, onValue, off } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
+import { getDatabase, ref as rtdbRef, set as rtdbSet, onValue, off, remove as rtdbRemove } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-storage.js";
 
 const firebaseConfig = {
@@ -319,9 +319,9 @@ async function applyRoleUI() {
         querySnapshot.forEach((docSnap) => {
           const u = docSnap.data();
           if (u.role === "driver") {
-            const displayName = u.apelido || u.nome || 'Motorista sem nome';
+            const displayName = u.nome || 'Motorista sem nome';
             const initial = displayName.charAt(0).toUpperCase();
-            window._fleetDrivers.push({uid: docSnap.id, nome: u.nome, apelido: u.apelido || '', email: u.email});
+            window._fleetDrivers.push({uid: docSnap.id, nome: u.nome, email: u.email});
             
             const label = document.createElement('label');
             label.className = 'bdr-item';
@@ -547,18 +547,32 @@ window.updateRouteStatus = async function(missionId, status, extraData = {}) {
   };
 
   try {
-    // 1. Update Subcollection (History)
-    await updateDoc(doc(db, "users", currentUser.uid, "history", missionId), updatePayload);
+    const batch = writeBatch(db);
     
-    // 2. Update Parent User Doc (Denormalization to trigger Admin Hub Real-time)
-    await updateDoc(doc(db, "users", currentUser.uid), {
+    // 1. Update Subcollection (History)
+    const historyRef = doc(db, "users", currentUser.uid, "history", missionId);
+    batch.update(historyRef, updatePayload);
+    
+    // 2. Update Parent User Doc (Denormalization)
+    const userRef = doc(db, "users", currentUser.uid);
+    batch.update(userRef, {
       currentStatus: status,
-      lastStatusUpdate: serverTimestamp()
+      lastStatusUpdate: serverTimestamp(),
+      // Denormalizar resumo para o Monitoramento Admin (Evita queries extras)
+      lastRouteSummary: {
+        id: missionId,
+        status: status,
+        updatedAt: serverTimestamp(),
+        stopsCount: extraData.stopsCount || null, // Mantém se enviado
+        expectedWeight: extraData.expectedWeight !== undefined ? extraData.expectedWeight : null,
+        expectedValue: extraData.expectedValue !== undefined ? extraData.expectedValue : null
+      }
     });
     
-    console.log(`Status sincronizado: ${status}`);
+    await batch.commit();
+    console.log(`Status sincronizado via Batch: ${status}`);
   } catch(e) {
-    console.warn("Erro ao sincronizar status:", e);
+    console.warn("Erro ao sincronizar status em lote:", e);
     throw e;
   }
 };
@@ -1931,9 +1945,7 @@ window.generateManualRoute = async function() {
       targetDriverName = selectedCard ? selectedCard.dataset.name : 'Motorista';
     }
 
-    // 3) Preparar dados da rota
-    const weightInput = document.getElementById('builderRouteWeight');
-    const valueInput = document.getElementById('builderRouteValue');
+    // 3) Preparar dados da rota (Peso e Valor removidos a pedido do usuário)
 
     const routeData = {
       points: builderSelectedPoints.map(p => ({name: p.name, input: p.originalInput, lat: p.lat||null, lng: p.lng||null})),
@@ -1941,8 +1953,8 @@ window.generateManualRoute = async function() {
       polyline: "",
       mapsUrl: mapsUrl,
       status: "Pendente",
-      expectedWeight: weightInput ? (parseFloat(weightInput.value) || 0) : 0,
-      expectedValue: valueInput ? (parseFloat(valueInput.value) || 0) : 0,
+      expectedWeight: 0,
+      expectedValue: 0,
       createdAt: serverTimestamp()
     };
 
@@ -1950,11 +1962,28 @@ window.generateManualRoute = async function() {
     if (targetUid !== currentUser.uid) {
       routeData.assignedBy = currentUser.uid;
       const u = window.currentUserData || {};
-      routeData.assignedByName = u.apelido || u.nome || currentUser.displayName || currentUser.email || 'Admin';
+      routeData.assignedByName = u.nome || currentUser.displayName || currentUser.email || 'Admin';
     }
 
-    // 4) Salvar no banco (vai disparar o listener do Firestore que atualiza o card do Usuário Alvo)
-    const newRouteRef = await addDoc(collection(db, "users", targetUid, "history"), routeData);
+    // 4) Salvar no banco usando Batch para consistência e performance
+    const batch = writeBatch(db);
+    const newRouteRef = doc(collection(db, "users", targetUid, "history"));
+    batch.set(newRouteRef, routeData);
+
+    // Denormalização: Salva o resumo no documento do motorista para o Monitoramento Admin
+    batch.update(doc(db, "users", targetUid), {
+      lastRouteSummary: {
+        id: newRouteRef.id,
+        status: routeData.status,
+        stopsCount: routeData.stopsCount,
+        expectedWeight: routeData.expectedWeight,
+        expectedValue: routeData.expectedValue,
+        assignedByName: routeData.assignedByName || null,
+        createdAt: serverTimestamp()
+      }
+    });
+
+    await batch.commit();
 
     // 5) Feedback visual + fechar modal
     window.currentRouteUrl = mapsUrl;
@@ -2229,7 +2258,7 @@ async function renderFleetDriverCards() {
       if (u.role !== 'driver') continue;
       driverCount++;
 
-      const displayName = u.apelido || u.nome || 'Sem nome';
+      const displayName = u.nome || 'Sem nome';
       const initial = displayName.charAt(0).toUpperCase();
       const email = u.email || '';
       const uid = docSnap.id;
@@ -2744,7 +2773,7 @@ window.fpSendScheduledNow = async function(schedId) {
       status: "Pendente",
       createdAt: serverTimestamp(),
       assignedBy: currentUser.uid,
-      assignedByName: (window.currentUserData?.apelido || window.currentUserData?.nome || currentUser.displayName || currentUser.email || 'Admin')
+      assignedByName: (window.currentUserData?.nome || currentUser.displayName || currentUser.email || 'Admin')
     };
 
     if (data.note) routeData.note = data.note;
@@ -2815,7 +2844,7 @@ window.startScheduledRouteDispatcher = function() {
         status: "Pendente",
         createdAt: serverTimestamp(),
         assignedBy: currentUser.uid,
-        assignedByName: (window.currentUserData?.apelido || window.currentUserData?.nome || currentUser.displayName || currentUser.email || 'Admin')
+        assignedByName: (window.currentUserData?.nome || currentUser.displayName || currentUser.email || 'Admin')
       };
       if (schedData.note) routeData.note = schedData.note;
 
@@ -2980,7 +3009,7 @@ window.checkAndDispatchScheduledRoutes = async function() {
           status: "Pendente",
           createdAt: serverTimestamp(),
           assignedBy: currentUser.uid,
-          assignedByName: (window.currentUserData?.apelido || window.currentUserData?.nome || currentUser.displayName || currentUser.email || 'Admin')
+          assignedByName: (window.currentUserData?.nome || currentUser.displayName || currentUser.email || 'Admin')
         };
         if (data.note) routeData.note = data.note;
 
@@ -3373,7 +3402,7 @@ async function loadFleetDrivers() {
     snapshot.forEach((docSnap) => {
       const u = docSnap.data();
       const uid = docSnap.id;
-      const displayName = u.apelido || u.nome || 'Sem nome';
+      const displayName = u.nome || 'Sem nome';
       const initial = displayName.charAt(0).toUpperCase();
 
       const card = document.createElement('div');
@@ -3393,11 +3422,11 @@ async function loadFleetDrivers() {
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
-          <label style="font-size:10px; font-weight:700; color:var(--pr-text-muted); white-space:nowrap;">Apelido:</label>
-          <input type="text" value="${escapeHTML(u.apelido || '')}" placeholder="Ex: João da Van" 
+          <label style="font-size:10px; font-weight:700; color:var(--pr-text-muted); white-space:nowrap;">Nome Completo:</label>
+          <input type="text" value="${escapeHTML(u.nome || '')}" placeholder="Ex: João da Silva" 
             style="flex:1; border:1px solid var(--pr-border); border-radius:6px; padding:5px 8px; font-size:11px; background:var(--pr-bg); color:var(--pr-text); outline:none;"
-            id="nick_${uid}" data-realname="${escapeHTML(u.nome || 'Sem nome')}" />
-          <button onclick="event.stopPropagation(); window.saveDriverNickname('${uid}', this)" 
+            id="name_${uid}" />
+          <button onclick="event.stopPropagation(); window.saveDriverName('${uid}', this)" 
             style="border:none; background:#1A6BAF; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Salvar</button>
         </div>
       `;
@@ -3409,23 +3438,23 @@ async function loadFleetDrivers() {
   }
 }
 
-window.saveDriverNickname = async function(driverUid, btn) {
-  const input = document.getElementById('nick_' + driverUid);
+window.saveDriverName = async function(driverUid, btn) {
+  const input = document.getElementById('name_' + driverUid);
   const nameEl = document.getElementById('fleet_name_' + driverUid);
   const avatarEl = document.getElementById('fleet_avatar_' + driverUid);
   if (!input) return;
-  const apelido = input.value.trim();
-  const realName = input.dataset.realname;
+  const novoNome = input.value.trim();
   
+  if (!novoNome) return alert("O nome não pode ser vazio.");
+
   btn.textContent = '...';
   btn.style.pointerEvents = 'none';
   try {
-    const finalDisplay = apelido || realName || 'Sem nome';
-    await updateDoc(doc(db, "users", driverUid), { apelido: apelido });
+    await updateDoc(doc(db, "users", driverUid), { nome: novoNome });
     
     // Instantly update visual state in the DOM
-    if (nameEl) nameEl.textContent = finalDisplay;
-    if (avatarEl) avatarEl.textContent = finalDisplay.charAt(0).toUpperCase();
+    if (nameEl) nameEl.textContent = novoNome;
+    if (avatarEl) avatarEl.textContent = novoNome.charAt(0).toUpperCase();
 
     btn.textContent = '✅';
     btn.style.background = '#27ae60';
@@ -3438,7 +3467,7 @@ window.saveDriverNickname = async function(driverUid, btn) {
     // 2. Update in-memory _fleetDrivers cache so the builder list stays in sync
     if (window._fleetDrivers) {
       const cached = window._fleetDrivers.find(d => d.uid === driverUid);
-      if (cached) cached.apelido = apelido;
+      if (cached) cached.nome = novoNome;
     }
 
     // 3. If the Fleet Panel (Rotas Futuras) is currently open, re-render it
@@ -3464,7 +3493,7 @@ window.saveDriverNickname = async function(driverUid, btn) {
       btn.style.background = '#1A6BAF';
       btn.style.pointerEvents = 'auto';
     }, 2000);
-    console.warn('Erro ao salvar apelido:', e);
+    console.warn('Erro ao salvar nome:', e);
   }
 };
 
@@ -3477,17 +3506,18 @@ window.openAdminHub = function() {
 
 window.renameDriver = async function(driverUid, oldName) {
   if (!checkRole('admin')) return;
-  const newNick = prompt(`Alterar apelido para "${oldName}":`, oldName);
-  if (newNick === null) return;
+  const newName = prompt(`Alterar nome para "${oldName}":`, oldName);
+  if (newName === null) return;
   
   try {
-    const trimmedNick = newNick.trim();
-    await updateDoc(doc(db, "users", driverUid), { apelido: trimmedNick });
+    const trimmedName = newName.trim();
+    if (!trimmedName) return alert("O nome não pode ser vazio.");
+    await updateDoc(doc(db, "users", driverUid), { nome: trimmedName });
 
     // 1. Update in-memory _fleetDrivers cache
     if (window._fleetDrivers) {
       const cached = window._fleetDrivers.find(d => d.uid === driverUid);
-      if (cached) cached.apelido = trimmedNick;
+      if (cached) cached.nome = trimmedName;
     }
 
     // 2. If the Fleet Panel (Rotas Futuras) is currently open, re-render it
@@ -3503,9 +3533,9 @@ window.renameDriver = async function(driverUid, oldName) {
     }
 
     // NOTE: Admin Hub (Monitorar ao Vivo) auto-updates via its existing onSnapshot.
-    alert("Apelido atualizado com sucesso!");
+    alert("Nome atualizado com sucesso!");
   } catch(e) {
-    alert("Erro ao atualizar apelido: " + e.message);
+    alert("Erro ao atualizar nome: " + e.message);
   }
 };
 
@@ -3522,6 +3552,13 @@ window.deleteDriver = async function(driverUid, name) {
     // Nota: Subcoleções como history e scheduledRoutes permanecerão no banco (lixo órfão), 
     // mas o usuário deixará de existir no sistema e sumirá do painel.
     await deleteDoc(doc(db, "users", driverUid));
+
+    // Limpa a localização no Realtime Database para não gerar "fantasmas" no mapa
+    const adminKey = window.companyId || (currentUser ? currentUser.uid : null);
+    if (adminKey) {
+      await rtdbRemove(rtdbRef(rtdb, `locations/${adminKey}/${driverUid}`));
+    }
+
     alert(`✅ Perfil de "${name}" excluído com sucesso.`);
   } catch(e) {
     console.error("Erro ao excluir motorista:", e);
@@ -3564,9 +3601,8 @@ async function loadAdminHubData() {
       }
     }, 10000);
 
-    window._adminHubUnsubscribe = onSnapshot(usersQ, async (snapshot) => {
+    window._adminHubUnsubscribe = onSnapshot(usersQ, (snapshot) => {
       clearTimeout(syncTimeout);
-      content.innerHTML = '';
       
       if (snapshot.empty) {
         content.innerHTML = `<div style="padding: 40px; text-align: center; opacity: 0.5;">
@@ -3576,161 +3612,120 @@ async function loadAdminHubData() {
         return;
       }
 
-      // Grid container for premium look
-      const grid = document.createElement('div');
-      grid.style.display = "grid";
-      grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(280px, 1fr))";
-      grid.style.gap = "15px";
-      content.appendChild(grid);
+      // Se o grid não existe, cria-o. Se existe, apenas atualizamos o que mudou.
+      let grid = content.querySelector('.hub-grid');
+      if (!grid) {
+        content.innerHTML = '';
+        grid = document.createElement('div');
+        grid.className = 'hub-grid';
+        grid.style.display = "grid";
+        grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(280px, 1fr))";
+        grid.style.gap = "15px";
+        content.appendChild(grid);
+      }
 
-      for (const userDoc of snapshot.docs) {
-        const u = userDoc.data();
-        if (u.role === "driver") {
-          // Obter a última rota em tempo real
-          const hQ = query(collection(db, "users", userDoc.id, "history"), orderBy("createdAt", "desc"), limit(1));
-          const hSnap = await getDocs(hQ);
-          
-          const card = document.createElement('div');
+      snapshot.docChanges().forEach(change => {
+        const u = change.doc.data();
+        const driverId = change.doc.id;
+        
+        if (u.role !== "driver") return;
+
+        if (change.type === "removed") {
+          const existingCard = document.getElementById(`card-hub-${driverId}`);
+          if (existingCard) existingCard.remove();
+          return;
+        }
+
+        // Renderização Incremental (Senior approach: Don't clear everything)
+        let card = document.getElementById(`card-hub-${driverId}`);
+        if (!card) {
+          card = document.createElement('div');
+          card.id = `card-hub-${driverId}`;
           card.className = 'hub-card';
-          
-          let displayName = u.apelido || u.nome || u.email || 'Motorista';
-          const initial = displayName.charAt(0).toUpperCase();
-
-          if (hSnap.empty) {
-            card.innerHTML = `
-              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
-                <div style="display: flex; gap: 12px; align-items: center;">
-                  <div class="fdc-avatar">${initial}</div>
-                  <div>
-                    <div class="fdc-name" style="display:flex; align-items:center; gap:8px;">
-                      ${escapeHTML(displayName)}
-                    </div>
-                    <div style="display:flex; gap:6px; margin-top:4px;">
-                      <button onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')" style="background:var(--pr-blue-pale); color:var(--pr-blue-dark); border:none; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
-                        <span>✏️</span> Editar
-                      </button>
-                      <button onclick="deleteDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')" style="background:rgba(231, 76, 60, 0.1); color:#e74c3c; border:none; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
-                        <span>🗑️</span> Excluir
-                      </button>
-                    </div>
-                    <div class="fdc-email" style="margin-top:6px;">${escapeHTML(u.email || "")}</div>
-                  </div>
-                </div>
-              </div>
-
-              <div id="hub-route-${userDoc.id}" style="font-size:11px; color:var(--pr-text-muted); background:var(--pr-bg); padding:8px 10px; border-radius:8px; border:1px solid var(--pr-border);">
-                Pendente: Sem histórico de rotas
-              </div>
-
-              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <button onclick="window.closeAdminHub(); window.openLiveSpy('${userDoc.id}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px; background:var(--pr-blue-dark);">
-                  Espionar
-                </button>
-                <button onclick="window.openDriverStats('${userDoc.id}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px;">
-                  Desempenho
-                </button>
-              </div>
-            `;
-          } else {
-            const r = hSnap.docs[0].data();
-            const routeStatus = r.status || "Pendente";
-            let stClass = "blue";
-            let stBadgeColor = "var(--pr-blue-dark)";
-            
-            if (routeStatus === "Finalizada" || routeStatus === "Concluída") {
-              stClass = "green";
-              stBadgeColor = "#27ae60";
-            } else if (routeStatus === "Pendente") {
-              stClass = "blue";
-              stBadgeColor = "#f39c12";
-            } else if (routeStatus === "Cancelada") {
-              stBadgeColor = "#e74c3c";
-            }
-
-            let startedTimeHTML = '';
-            if (r.startedAt && r.startedAt.toDate) {
-              const dObj = r.startedAt.toDate();
-              startedTimeHTML = `<div style="font-size:10px; color:var(--pr-blue-mid); margin-top:2px;">Iniciou às ${dObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</div>`;
-            }
-            
-            const locRef = rtdbRef(rtdb, `locations/${window.companyId}/${userDoc.id}`);
-            // Usaremos um listener local para esse card para ser 100% real-time
-            // Mas para simplificar neste loop, vamos apenas deixar um placeholder que será preenchido
-            
-            card.innerHTML = `
-              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                  <div class="fdc-avatar">${initial}</div>
-                  <div style="flex: 1; min-width: 0;">
-                    <div class="text-dark-auto" style="font-weight:800; font-size:14px; display: flex; align-items: center; gap: 6px;">
-                      ${escapeHTML(displayName)}
-                    </div>
-                    <div style="display:flex; gap:6px; margin: 4px 0;">
-                      <button onclick="renameDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')" style="background:var(--pr-blue-pale); color:var(--pr-blue-dark); border:none; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
-                        <span>✏️</span> Editar
-                      </button>
-                      <button onclick="deleteDriver('${userDoc.id}', '${(displayName).replace(/'/g, "\\'")}')" style="background:rgba(231, 76, 60, 0.1); color:#e74c3c; border:none; padding:4px 10px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
-                        <span>🗑️</span> Excluir
-                      </button>
-                    </div>
-                    <div style="font-size:11px; color:var(--pr-text-muted); display: flex; align-items: center;">
-                      <span class="status-pulse ${stClass}"></span>
-                      ${escapeHTML(routeStatus)}
-                    </div>
-                  </div>
-                </div>
-                <span class="hub-status-badge" style="background: ${stBadgeColor}">${escapeHTML(routeStatus)}</span>
-              </div>
-              
-              <div style="background: var(--pr-bg); border-radius: 8px; padding: 10px; margin-top: 4px; border: 1px dashed var(--pr-border);">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div style="font-size:11px; font-weight: 700; color: var(--pr-text);">
-                    ${r.stopsCount || 0} Paradas 
-                    ${r.distance && r.distance !== "—" ? ` | ${r.distance}km` : ''} 
-                    ${r.time && r.time !== "—" ? ` | ${r.time}min` : ''}
-                  </div>
-                  <div id="hub-nearest-${userDoc.id}" style="font-size:9px; font-weight:700; color:${stBadgeColor};"></div>
-                </div>
-                ${startedTimeHTML}
-                
-                ${(routeStatus === "Concluída" || routeStatus === "Finalizada") ? `
-                  <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--pr-border); display:flex; flex-wrap:wrap; gap:10px;">
-                    <div style="font-size:10px; color:#27ae60; font-weight:700;">⚖️ ${r.cargoWeight || 0}kg</div>
-                    <div style="font-size:10px; color:#e67e22; font-weight:700;">💰 R$ ${(r.cargoValue || 0).toFixed(2)}</div>
-                    ${r.proofPhotoUrl ? `
-                      <a href="${r.proofPhotoUrl}" target="_blank" style="font-size:10px; color:var(--pr-blue-mid); text-decoration:none; font-weight:700; display:flex; align-items:center; gap:3px;">
-                        🖼️ Ver Comprovante
-                      </a>
-                    ` : ''}
-                  </div>
-                ` : ''}
-              </div>
-
-              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <button onclick="window.closeAdminHub(); window.openLiveSpy('${userDoc.id}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px; background:var(--pr-blue-dark);">
-                  Espionar
-                </button>
-                <button onclick="window.openDriverStats('${userDoc.id}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:5px;">
-                  Desempenho
-                </button>
-              </div>
-            `;
-
-            // Vincular listener de localização para o "Próximo"
-            if (routeStatus === "Em Rota") {
-              onValue(locRef, (lSnap) => {
-                const lData = lSnap.val();
-                const targetEl = document.getElementById(`hub-nearest-${userDoc.id}`);
-                if (targetEl && lData && lData.nearestStop) {
-                  targetEl.textContent = `Perto de: ${lData.nearestStop.name}`;
-                  targetEl.style.animation = "pulse 2s infinite";
-                }
-              }, { onlyOnce: true }); // Apenas uma vez para não criar milhares de listeners se o usuário abrir/fechar muito
-            }
-          }
           grid.appendChild(card);
         }
-      }
+
+        const r = u.lastRouteSummary || null;
+        let displayName = u.nome || u.email || 'Motorista';
+        const initial = displayName.charAt(0).toUpperCase();
+
+        if (!r) {
+          card.innerHTML = `
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <div class="fdc-avatar">${initial}</div>
+                <div>
+                  <div class="fdc-name" style="display:flex; align-items:center; gap:8px;">
+                    ${escapeHTML(displayName)}
+                  </div>
+                  <div class="fdc-email" style="margin-top:6px;">${escapeHTML(u.email || "")}</div>
+                </div>
+              </div>
+            </div>
+            <div style="font-size:11px; color:var(--pr-text-muted); background:var(--pr-bg); padding:8px 10px; border-radius:8px; border:1px solid var(--pr-border); margin-top:10px;">
+              Pendente: Sem histórico recente
+            </div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-top:10px;">
+              <button onclick="window.closeAdminHub(); window.openLiveSpy('${driverId}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; background:var(--pr-blue-dark);">Espionar</button>
+              <button onclick="window.openDriverStats('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px;">Desempenho</button>
+              <button onclick="window.deleteDriver('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; background:#e74c3c; border-color:#c0392b;">Excluir</button>
+            </div>
+          `;
+        } else {
+          const routeStatus = r.status || "Pendente";
+          let stClass = "blue";
+          let stBadgeColor = "var(--pr-blue-dark)";
+          
+          if (routeStatus === "Concluída") { stClass = "green"; stBadgeColor = "#27ae60"; }
+          else if (routeStatus === "Pendente") { stClass = "orange"; stBadgeColor = "#f39c12"; }
+          else if (routeStatus === "Cancelada") { stBadgeColor = "#e74c3c"; }
+
+          card.innerHTML = `
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="fdc-avatar">${initial}</div>
+                <div style="flex: 1; min-width: 0;">
+                  <div class="text-dark-auto" style="font-weight:800; font-size:14px;">${escapeHTML(displayName)}</div>
+                  <div style="font-size:11px; color:var(--pr-text-muted); display: flex; align-items: center; margin-top:2px;">
+                    <span class="status-pulse ${stClass}"></span>
+                    ${escapeHTML(routeStatus)}
+                  </div>
+                </div>
+              </div>
+              <span class="hub-status-badge" style="background: ${stBadgeColor}">${escapeHTML(routeStatus)}</span>
+            </div>
+            
+            <div style="background: var(--pr-bg); border-radius: 8px; padding: 10px; margin-top: 10px; border: 1px dashed var(--pr-border);">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:11px; font-weight: 700; color: var(--pr-text);">
+                  ${r.stopsCount || 0} Paradas 
+                  ${r.expectedWeight ? ` | ${r.expectedWeight}kg` : ''}
+                </div>
+                <div id="hub-nearest-${driverId}" style="font-size:9px; font-weight:700; color:${stBadgeColor};"></div>
+              </div>
+              ${r.assignedByName ? `<div style="font-size:9px; color:var(--pr-blue-mid); margin-top:2px;">Atribuído por: ${escapeHTML(r.assignedByName)}</div>` : ''}
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-top:10px;">
+              <button onclick="window.closeAdminHub(); window.openLiveSpy('${driverId}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; background:var(--pr-blue-dark);">Espionar</button>
+              <button onclick="window.openDriverStats('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px;">Desempenho</button>
+              <button onclick="window.deleteDriver('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; background:#e74c3c; border-color:#c0392b;">Excluir</button>
+            </div>
+          `;
+          
+          // Listener RTDB para localização (Otimizado: apenas uma vez)
+          if (routeStatus === "Em Rota") {
+             const locRef = rtdbRef(rtdb, `locations/${window.companyId}/${driverId}`);
+             onValue(locRef, (lSnap) => {
+                const lData = lSnap.val();
+                const targetEl = document.getElementById(`hub-nearest-${driverId}`);
+                if (targetEl && lData && lData.nearestStop) {
+                  targetEl.textContent = `Perto de: ${lData.nearestStop.name}`;
+                }
+             }, { onlyOnce: true });
+          }
+        }
+      });
     });
 
   } catch(e) {
@@ -4069,7 +4064,7 @@ function startDriverGPS() {
   // Obtém nome do motorista do Firestore para exibir no mapa do admin
   getDoc(doc(db, 'users', currentUser.uid)).then(snap => {
     const udata = snap.exists() ? snap.data() : {};
-    const driverName = udata.apelido || udata.nome || currentUser.email || 'Motorista';
+    const driverName = udata.nome || currentUser.email || 'Motorista';
 
     _gpsWatchId = navigator.geolocation.watchPosition(
       async (pos) => {
@@ -4274,7 +4269,7 @@ const _spyRoleCheckInterval = setInterval(() => {
       const color = colorForIndex(i);
       // Use the fresh Firestore name (from cache)
       const cachedDriver = (window._fleetDrivers || []).find(d => d.uid === uid);
-      const name = (cachedDriver && (cachedDriver.apelido || cachedDriver.nome)) || data.name || 'Motorista';
+      const name = (cachedDriver && (cachedDriver.nome)) || data.name || 'Motorista';
       const initial = name.charAt(0).toUpperCase();
       const speed = data.speed || 0;
       const ago = timeAgo(data.ts || Date.now());
@@ -4336,7 +4331,7 @@ const _spyRoleCheckInterval = setInterval(() => {
       const color = colorForIndex(i);
       // Use the fresh Firestore name (from cache)
       const cachedDriver = (window._fleetDrivers || []).find(d => d.uid === uid);
-      const name = (cachedDriver && (cachedDriver.apelido || cachedDriver.nome)) || data.name || 'Motorista';
+      const name = (cachedDriver && (cachedDriver.nome)) || data.name || 'Motorista';
       const initial = name.charAt(0).toUpperCase();
       const speed = data.speed || 0;
       const ago = timeAgo(data.ts || Date.now());
