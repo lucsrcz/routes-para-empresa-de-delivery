@@ -1739,3 +1739,58 @@ body {
     gap: 14px;
   }
 }
+
+/* -- PRODESIVO FOOTER -- */
+.prodesivo-footer {
+  background: var(--pr-blue-dark);
+  color: #FFFFFF;
+  text-align: center;
+  padding: 14px 20px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  border-top: 2px solid var(--pr-blue-light);
+  flex-shrink: 0;
+  z-index: 100;
+  line-height: 1.5;
+}
+.dm .prodesivo-footer {
+  background: #05101C;
+  border-top-color: var(--pr-blue-mid);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+@media (max-width: 600px) {
+  .prodesivo-footer {
+    font-size: 10px;
+    padding: 12px 15px;
+  }
+}
+
+/* ----------- PRODESIVO COPYRIGHT ----------- */
+.prodesivo-copyright {
+  font-size: 10px;
+  color: var(--pr-text-muted);
+  opacity: 0.6;
+  padding: 15px;
+  line-height: 1.4;
+  text-align: left;
+  border-top: 1px solid var(--pr-border);
+  margin-top: auto;
+  font-family: var(--font-main);
+  letter-spacing: 0.2px;
+  transition: opacity 0.3s ease;
+  user-select: none;
+}
+.dm .prodesivo-copyright {
+  border-top-color: rgba(154, 200, 226, 0.1);
+}
+.prodesivo-copyright:hover {
+  opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .sidebar .prodesivo-copyright {
+    padding: 12px 20px 20px;
+  }
+}

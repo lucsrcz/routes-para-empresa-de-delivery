@@ -284,3 +284,25 @@ body { background: var(--pr-bg); color: var(--pr-text); }
   .role-icon { font-size: 20px; }
   .role-text { font-size: 11px; }
 }
+
+/* ----------- PRODESIVO COPYRIGHT ----------- */
+.prodesivo-copyright {
+  font-size: 10px;
+  color: var(--pr-text-muted);
+  opacity: 0.6;
+  padding: 10px 0;
+  line-height: 1.4;
+  text-align: left;
+  margin-top: 20px;
+  font-family: var(--font-main);
+  letter-spacing: 0.2px;
+  transition: opacity 0.3s ease;
+  user-select: none;
+}
+.dm .prodesivo-copyright {
+  color: var(--pr-blue-light);
+  opacity: 0.5;
+}
+.prodesivo-copyright:hover {
+  opacity: 1;
+}
