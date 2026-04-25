@@ -1682,3 +1682,60 @@ body {
   transform: scale(1.1);
 }
 
+
+/* ----------------------------------------------------------
+   MOBILE OPTIMIZATION - ROUTE SEQUENCE CONTROLS (Sênior UX)
+   ---------------------------------------------------------- */
+@media (max-width: 768px) {
+  .route-sequence-item {
+    padding: 12px 10px; 
+    gap: 10px;
+    margin-bottom: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+
+  .drag-handle {
+    font-size: 26px; 
+    padding: 6px;
+    opacity: 0.9;
+    color: var(--pr-blue-mid); /* Mais visível e colorido */
+    min-width: 40px; /* Área de toque maior */
+  }
+
+  .route-sequence-item .badge {
+    width: 26px;
+    height: 26px;
+    font-size: 11px;
+  }
+
+  .route-sequence-item .name {
+    font-size: 14px; /* Texto maior no mobile */
+    font-weight: 700;
+  }
+
+  .move-btns {
+    gap: 4px;
+  }
+
+  .move-btn {
+    width: 36px; /* Botões de subir/descer bem maiores */
+    height: 32px;
+    font-size: 14px;
+    background: var(--pr-surface);
+    border-color: var(--pr-border);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    color: var(--pr-blue-dark);
+  }
+
+  .remove-point-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    background: rgba(224, 102, 102, 0.2);
+    border: 1px solid rgba(224, 102, 102, 0.3);
+  }
+  
+  .sequence-actions {
+    gap: 14px;
+  }
+}
