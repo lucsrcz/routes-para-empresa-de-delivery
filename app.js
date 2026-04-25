@@ -3628,9 +3628,7 @@ async function loadAdminHubData() {
         const u = change.doc.data();
         const driverId = change.doc.id;
         
-        if (u.role !== "driver") return;
-
-        if (change.type === "removed") {
+        if (change.type === "removed" || (u && u.role !== "driver")) {
           const existingCard = document.getElementById(`card-hub-${driverId}`);
           if (existingCard) existingCard.remove();
           return;
