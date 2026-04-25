@@ -89,6 +89,45 @@ function escapeHTML(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
 
+/**
+ * Utilitário Sênior: Formata um local para uso em URLs do Google Maps (Directions/Search).
+ * Prioriza coordenadas para evitar ambiguidades e filtra links brutos.
+ */
+window.formatMapsLocation = function(loc) {
+  if (!loc) return '';
+  
+  // 1. Prioridade Máxima: Coordenadas (lat,lng)
+  // Verifica se lat/lng existem no objeto raiz ou dentro de um sub-objeto coords
+  const lat = loc.lat ?? loc.coords?.lat;
+  const lng = loc.lng ?? loc.coords?.lng;
+  
+  if (lat !== null && lat !== undefined && lng !== null && lng !== undefined) {
+    return `${lat},${lng}`;
+  }
+  
+  // 2. Fallback para Texto (Nome ou Endereço)
+  const name = loc.name || '';
+  const input = loc.originalInput || loc.input || '';
+  
+  // Detecta se o input é uma URL (não queremos mandar uma URL como waypoint)
+  const isUrl = (str) => {
+    if (!str || typeof str !== 'string') return false;
+    return str.startsWith('http') || str.includes('google.com/maps') || str.includes('goo.gl/maps');
+  };
+
+  // Se o input original for um link, preferimos usar o nome resolvido
+  if (isUrl(input)) {
+    return encodeURIComponent(name || 'Local');
+  }
+  
+  // Se for um endereço de texto, usamos o input (geralmente mais preciso que o nome customizado)
+  if (input && input.length > 3) {
+    return encodeURIComponent(input);
+  }
+  
+  return encodeURIComponent(name || 'Local');
+};
+
 // Sanitização de URL — previne injeção de javascript: em links
 function sanitizeUrl(url) {
   if (!url) return '';
@@ -2035,13 +2074,13 @@ window.generateManualRoute = async function() {
     }
     
     // 1) Montar o link do Google Maps (SEM abrir)
-    const getDeepFormat = (loc) => (loc.lat !== null && loc.lat !== undefined && loc.lng !== null && loc.lng !== undefined) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
     const lastP = builderSelectedPoints[builderSelectedPoints.length - 1];
-    let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
+    let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
     if (builderSelectedPoints.length > 1) {
-      const wpUrls = builderSelectedPoints.slice(0, -1).map(getDeepFormat);
+      const wpUrls = builderSelectedPoints.slice(0, -1).map(p => window.formatMapsLocation(p));
       mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
     }
+
 
     // 2) Identificar para quem despachar a rota
     let targetUid = currentUser.uid;
@@ -2293,15 +2332,14 @@ window.startDriverDailyRoute = function() {
   // 1. Generate Maps URL based on tempDriverRouteSequence
   let mapsUrl = `https://www.google.com/maps/dir/?api=1`;
   
-  // Last point is destination
-  const getFormat = (p) => (p.lat !== null && p.lat !== undefined && p.lng !== null && p.lng !== undefined) ? `${p.lat},${p.lng}` : encodeURIComponent(p.input || p.name);
   const lastP = window.tempDriverRouteSequence[window.tempDriverRouteSequence.length - 1];
-  const wpUrls = window.tempDriverRouteSequence.slice(0, -1).map(getFormat);
+  const wpUrls = window.tempDriverRouteSequence.slice(0, -1).map(p => window.formatMapsLocation(p));
   
-  mapsUrl += `&destination=${getFormat(lastP)}&travelmode=driving`;
+  mapsUrl += `&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
   if (wpUrls.length > 0) {
     mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
   }
+
 
   // 2. Mark route as "Em Rota" in Firestore and sync with Admin
   window.updateRouteStatus(window.activeRouteId, "Em Rota").catch(e => console.warn("Falha ao sincronizar status", e));
@@ -2821,12 +2859,11 @@ window.fpSaveScheduledRoute = async function() {
     const [hour, minute] = timeVal.split(':').map(Number);
     const scheduledDate = new Date(year, month - 1, day, hour, minute);
 
-    // Montar link do Google Maps
-    const getDeepFormat = (loc) => (loc.lat !== null && loc.lat !== undefined && loc.lng !== null && loc.lng !== undefined) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
+    // Montar o link do Google Maps
     const lastP = window._fpSchedulePoints[window._fpSchedulePoints.length - 1];
-    let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
+    let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
     if (window._fpSchedulePoints.length > 1) {
-      const wpUrls = window._fpSchedulePoints.slice(0, -1).map(getDeepFormat);
+      const wpUrls = window._fpSchedulePoints.slice(0, -1).map(p => window.formatMapsLocation(p));
       mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
     }
 
@@ -3351,11 +3388,10 @@ window.fpSaveEditSchedule = async function() {
   btn.style.pointerEvents = 'none';
 
   try {
-    const getDeepFormat = (loc) => (loc.lat !== null && loc.lat !== undefined && loc.lng !== null && loc.lng !== undefined) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc.originalInput || loc.name);
     const lastP = window._editSchedPoints[window._editSchedPoints.length - 1];
-    let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${getDeepFormat(lastP)}&travelmode=driving`;
+    let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
     if (window._editSchedPoints.length > 1) {
-      const wpUrls = window._editSchedPoints.slice(0, -1).map(getDeepFormat);
+      const wpUrls = window._editSchedPoints.slice(0, -1).map(p => window.formatMapsLocation(p));
       mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
     }
 
