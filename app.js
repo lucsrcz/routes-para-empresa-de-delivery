@@ -2476,7 +2476,7 @@ async function renderFleetDriverCards() {
     if (driverCount === 0) {
       grid.innerHTML = `
         <div style="text-align:center; width:100%; padding:40px 20px;">
-          <div style="font-size:36px; margin-bottom:12px;">🚗</div>
+          <div style="font-size:36px; margin-bottom:12px;">🚚</div>
           <div style="font-size:14px; font-weight:700; color:var(--pr-text); margin-bottom:4px;">Nenhum motorista ainda</div>
           <div style="font-size:11px; color:var(--pr-text-muted);">Convide motoristas pelo painel "Minha Frota"</div>
         </div>

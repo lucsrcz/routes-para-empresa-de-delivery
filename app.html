@@ -530,7 +530,7 @@
 <!-- ═══ DRIVER DAILY ROUTE MODAL (Ver Rota e Iniciar) ═══ -->
 <div class="modal-overlay" id="driverDailyRouteModal" onclick="closeDriverDailyRouteModal()">
   <div class="modal-content" style="max-height: 85vh; width: 95%; max-width: 500px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
-    <div class="modal-title" style="margin-bottom: 5px;">🚗 Minha Rota de Hoje</div>
+    <div class="modal-title" style="margin-bottom: 5px;">🚚 Minha Rota de Hoje</div>
     <div class="modal-desc" style="margin-bottom: 15px;">Revise a ordem das paradas. Você pode arrastar para reordenar antes de iniciar.</div>
     
     <div style="background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
@@ -560,7 +560,7 @@
     <div id="fpDriversView" style="display:flex; flex-direction:column; flex:1; min-height:0;">
       <!-- Invite Section (Driver) -->
       <div style="background: linear-gradient(135deg, rgba(39,174,96,0.08), rgba(30,132,73,0.12)); border: 1px solid rgba(39,174,96,0.2); border-radius: 12px; padding: 15px; margin-bottom: 15px; flex-shrink:0;">
-        <div class="text-dark-auto" style="font-size: 13px; font-weight: 700; margin-bottom: 5px;">🚗 Convite para Motoristas</div>
+        <div class="text-dark-auto" style="font-size: 13px; font-weight: 700; margin-bottom: 5px;">🚚 Convite para Motoristas</div>
         <div style="font-size: 11px; color: var(--pr-text-muted); margin-bottom: 10px;">Gere um link para o motorista se vincular à sua rota.</div>
         <button class="mbtn mbtn-save" id="sendInviteBtn" onclick="event.stopPropagation(); window.sendDriverInvite()" style="width: 100%; font-size: 12px; font-weight:700; background: #27ae60;">🔗 Gerar Ficha Motorista</button>
         
@@ -587,7 +587,7 @@
       </div>
 
       <!-- Drivers list -->
-      <div class="text-dark-auto" style="font-size: 12px; font-weight: 700; margin-bottom: 8px; flex-shrink:0;">🚗 Motoristas Vinculados</div>
+      <div class="text-dark-auto" style="font-size: 12px; font-weight: 700; margin-bottom: 8px; flex-shrink:0;">🚚 Motoristas Vinculados</div>
       <div id="fleetDriversList" style="flex: 1; overflow-y: auto; background: var(--pr-bg); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 100px;">
         <p style="text-align:center; font-size:12px; color:var(--pr-text-muted);">Carregando...</p>
       </div>
@@ -753,7 +753,7 @@
 
       <!-- Option 3: Driver Option -->
       <div id="rpDriverBox" style="background: var(--pr-bg); border: 1px solid var(--pr-border); border-radius: 8px; padding: 15px;">
-        <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 5px; color: #27ae60;">🚗 Sou Motorista</label>
+        <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 5px; color: #27ae60;">🚚 Sou Motorista</label>
         <div style="font-size: 10px; color: var(--pr-text-muted); margin-bottom: 10px;">Cole o link de convite enviado pelo Administrador.</div>
         <input type="text" id="rpDriverInput" class="modal-input" placeholder="Cole o link de convite aqui..." style="margin-bottom: 10px;"/>
         <button class="mbtn mbtn-save" style="width: 100%; background: #27ae60;" onclick="window.submitRoleSelection('driver')">Confirmar Motorista</button>
