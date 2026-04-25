@@ -2357,78 +2357,104 @@ window.closeDriverDailyRouteModal = function() {
   if (modal) modal.classList.remove('active');
 };
 
+/* ══════════════════════════════════════════════════════════
+   DRAG AND DROP - DRIVER DAILY ROUTE
+   ══════════════════════════════════════════════════════════ */
+let draggedDailyItemIndex = null;
+
+window.handleDailyDragStart = function(e, index) {
+  if (isTouchDevice()) return;
+  draggedDailyItemIndex = index;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', index);
+};
+
+window.handleDailyDragOver = function(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+};
+
+window.handleDailyDrop = function(e, targetIndex) {
+  e.preventDefault();
+  if (draggedDailyItemIndex === null || draggedDailyItemIndex === targetIndex) return;
+  
+  const item = window.tempDriverRouteSequence.splice(draggedDailyItemIndex, 1)[0];
+  window.tempDriverRouteSequence.splice(targetIndex, 0, item);
+  
+  draggedDailyItemIndex = null;
+  window.renderDriverDailyRoutePoints();
+};
+
+window.handleDailyDragEnd = function(e) {
+  e.currentTarget.classList.remove('dragging');
+  draggedDailyItemIndex = null;
+};
+
+window.moveDailyRoutePoint = function(index, direction) {
+  if (direction === -1 && index > 0) {
+    const temp = window.tempDriverRouteSequence[index];
+    window.tempDriverRouteSequence[index] = window.tempDriverRouteSequence[index - 1];
+    window.tempDriverRouteSequence[index - 1] = temp;
+  } else if (direction === 1 && index < window.tempDriverRouteSequence.length - 1) {
+    const temp = window.tempDriverRouteSequence[index];
+    window.tempDriverRouteSequence[index] = window.tempDriverRouteSequence[index + 1];
+    window.tempDriverRouteSequence[index + 1] = temp;
+  }
+  window.renderDriverDailyRoutePoints();
+};
+
+window.removeDailyRoutePoint = function(index) {
+  if (window.tempDriverRouteSequence.length <= 1) {
+    showToast("A rota deve ter pelo menos um ponto.", "warning");
+    return;
+  }
+  window.tempDriverRouteSequence.splice(index, 1);
+  window.renderDriverDailyRoutePoints();
+};
+
 window.renderDriverDailyRoutePoints = function() {
-  const c = document.getElementById('driverDailyRoutePoints');
-  if (!c) return;
-  c.innerHTML = "";
+  const container = document.getElementById('driverDailyRoutePoints');
+  if (!container) return;
+  container.innerHTML = "";
   
   const points = window.tempDriverRouteSequence;
   
-  // We use similar styling to fleet route sorting, but adapted
-  points.forEach((pt, idx) => {
-    let div = document.createElement('div');
-    div.style.cssText = "display: flex; align-items: center; gap: 8px; padding: 10px; background: var(--pr-bg); border-radius: 6px; border: 1px solid var(--pr-border); cursor: grab; touch-action: pan-y;";
+  if (points.length === 0) {
+    container.innerHTML = `<div style="font-size:11px; color:var(--pr-text-muted); text-align:center; padding:20px 10px;">Nenhuma parada nesta rota.</div>`;
+    return;
+  }
+
+  points.forEach((pt, i) => {
+    const item = document.createElement('div');
+    item.className = 'route-sequence-item';
     
-    // Sênior Fix: Draggable bloqueia scroll no mobile. Desabilitamos se for touch.
-    const isTouch = isTouchDevice();
-    div.draggable = !isTouch;
-    
-    if (!isTouch) {
-      div.ondragstart = (e) => {
-        window.driverRouteDragSourceIndex = idx;
-        div.style.opacity = '0.5';
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/html", div.innerHTML);
-      };
-      
-      div.ondragover = (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        div.style.border = '2px dashed var(--pr-blue-mid)';
-      };
-      
-      div.ondragleave = (e) => {
-        div.style.border = '1px solid var(--pr-border)';
-      };
-      
-      div.ondrop = (e) => {
-        e.preventDefault();
-        div.style.border = '1px solid var(--pr-border)';
-        let targetIndex = idx;
-        let sourceIndex = window.driverRouteDragSourceIndex;
-        
-        if (sourceIndex !== targetIndex) {
-          let tempSequence = [...window.tempDriverRouteSequence];
-          let movedItem = tempSequence.splice(sourceIndex, 1)[0];
-          tempSequence.splice(targetIndex, 0, movedItem);
-          window.tempDriverRouteSequence = tempSequence;
-          window.renderDriverDailyRoutePoints();
-        }
-      };
-      
-      div.ondragend = (e) => {
-        div.style.opacity = '1';
-        div.style.border = '1px solid var(--pr-border)';
-      };
-    }
+    // Configura Drag and Drop (igual ao builder)
+    item.draggable = !isTouchDevice();
+    item.setAttribute('ondragstart', `handleDailyDragStart(event, ${i})`);
+    item.setAttribute('ondragover', `handleDailyDragOver(event)`);
+    item.setAttribute('ondrop', `handleDailyDrop(event, ${i})`);
+    item.setAttribute('ondragend', `handleDailyDragEnd(event)`);
 
-    let numb = document.createElement('div');
-    numb.style.cssText = "background: var(--pr-blue-mid); color: #fff; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold;";
-    numb.textContent = (idx + 1);
+    const displayName = pt.name || pt.address || "Local sem nome";
 
-    let name = document.createElement('div');
-    name.style.cssText = "flex: 1; font-size: 13px; font-weight: 500; color: var(--pr-text);";
-    name.textContent = pt.name;
-
-    let handle = document.createElement('div');
-    handle.style.cssText = "color: var(--pr-text-muted); cursor: grab; font-size: 14px;";
-    handle.innerHTML = "☰";
-    if (isTouch) handle.style.opacity = '0.3'; // Visual feedback that drag is disabled on mobile for scroll
-
-    div.appendChild(numb);
-    div.appendChild(name);
-    div.appendChild(handle);
-    c.appendChild(div);
+    item.innerHTML = `
+      <div class="drag-handle" title="Arraste para reordenar">⠿</div>
+      <div class="badge">${i + 1}</div>
+      <div class="name" title="${escapeHTML(displayName)}">
+        ${escapeHTML(displayName)}
+      </div>
+      <div class="sequence-actions">
+        <div class="move-btns">
+          <button class="move-btn" onclick="moveDailyRoutePoint(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Subir">▲</button>
+          <button class="move-btn" onclick="moveDailyRoutePoint(${i}, 1)" ${i === points.length - 1 ? 'disabled' : ''} title="Descer">▼</button>
+        </div>
+        <button class="remove-point-btn" onclick="removeDailyRoutePoint(${i})" title="Remover este ponto">
+          ✕
+        </button>
+      </div>
+    `;
+    container.appendChild(item);
   });
 };
 
