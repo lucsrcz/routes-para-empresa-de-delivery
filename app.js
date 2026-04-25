@@ -2484,12 +2484,19 @@ window.startDriverDailyRoute = function() {
   window.updateRouteStatus(window.activeRouteId, "Em Rota").catch(e => console.warn("Falha ao sincronizar status", e));
 
   // 3. Open URL
-  window.open(mapsUrl, '_blank');
+  // Sênior Fix: No mobile, usamos window.location.href para disparar o "Intent" do aplicativo nativo.
+  // Usar '_blank' força o sistema a abrir o navegador (Chrome/Safari) em vez de sugerir o App Google Maps.
+  if (isTouchDevice()) {
+    window.location.href = mapsUrl;
+  } else {
+    window.open(mapsUrl, '_blank');
+  }
 
-  // 4. Reload page to reset state so the driver sees the original route if they come back
+  // 4. Reset UI state without a hard reload that could cancel the navigation intent
   setTimeout(() => {
-    window.location.reload();
-  }, 100);
+    closeDriverDailyRouteModal();
+    // Opcional: Se quiser resetar algum estado específico, faça aqui em vez de reload()
+  }, 500);
 };
 
 // ══════════════════════════════════════════════════════════
