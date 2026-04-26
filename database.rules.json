@@ -3,6 +3,7 @@
     "locations": {
       "$adminId": {
         ".read": "auth != null && auth.uid === $adminId",
+        ".write": "auth != null && auth.uid === $adminId",
         "$driverId": {
           ".write": "auth != null && auth.uid === $driverId"
         }

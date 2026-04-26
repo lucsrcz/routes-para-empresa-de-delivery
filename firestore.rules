@@ -25,9 +25,10 @@ service cloud.firestore {
            : (d.get('role', '') == 'admin' ? request.auth.uid : null);
     }
 
-    // Verifica se o usuário logado é admin
+    // Verifica se o usuário logado tem papel administrativo (Admin ou Co-Admin)
     function isAdmin() {
-      return me().get('role', '') == 'admin';
+      let role = me().get('role', '');
+      return role == 'admin' || role == 'co-admin';
     }
 
     // Verifica se o usuário logado é admin desta empresa específica
@@ -67,7 +68,13 @@ service cloud.firestore {
         (isAdmin() && resource.data.get('adminId', null) == myCompany())
       );
 
-      allow delete: if isAuth() && isAdminOf(resource.data.get('companyId', null));
+      allow delete: if isAuth() && (
+        isAdminOf(resource.data.get('companyId', null)) ||
+        (isAdmin() && (
+          resource.data.get('adminId', null) == myCompany() ||
+          resource.data.get('adminId', null) == request.auth.uid
+        ))
+      );
 
       // ── Sub-coleções ────────────────────────────────────────
       match /{allSubcollections=**} {

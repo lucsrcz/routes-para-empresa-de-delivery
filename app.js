@@ -4185,6 +4185,9 @@ window.unlinkDriver = async function(driverUid, name) {
   if (!confirm) return;
   
   try {
+    // Senior dev approach: Scrub ALL user data (routes, history, RTDB tracking) before unlinking
+    await window.scrubUserData(driverUid);
+
     // Para "sumir" totalmente, removemos companyId e adminId, e resetamos o papel
     await updateDoc(doc(db, "users", driverUid), { 
       adminId: null, 
@@ -4229,27 +4232,6 @@ window.demoteFromCoAdmin = async function(driverUid, name) {
   }
 };
 
-window.deleteDriver = async function(driverUid, name) {
-  if (!checkRole('admin')) return;
-  const confirm = await window.showConfirm(`ATENÇÃO: Deseja EXCLUIR permanentemente o usuário "${name}"?\nEsta ação removerá o vínculo com a empresa. Para voltar, ele precisará de um novo convite.`, "Excluir Usuário", "🗑️ Excluir");
-  if (!confirm) return;
-  
-  try {
-    // O usuário solicitou que ele "suma" do ambiente. Resetar companyId é o gatilho principal.
-    await updateDoc(doc(db, "users", driverUid), { 
-      adminId: null, 
-      companyId: null,
-      role: 'pending',
-      currentStatus: null,
-      lastRouteSummary: null
-    });
-    showToast("Usuário excluído do ambiente da empresa.", "success");
-    loadFleetDrivers();
-    if (window.refreshBuilderDriverList) window.refreshBuilderDriverList();
-  } catch(e) {
-    showToast("Erro ao excluir: " + e.message, "error");
-  }
-};
 
 window.promoteToCoAdmin = async function(driverUid, name) {
   if (!checkRole('admin')) return;
@@ -4401,17 +4383,19 @@ window.deleteDriver = async function(driverUid, name) {
   if (!confirm2) return;
   
   try {
-    // Nota: Subcoleções como history e scheduledRoutes permanecerão no banco (lixo órfão), 
-    // mas o usuário deixará de existir no sistema e sumirá do painel.
+    // Senior dev approach: Scrub ALL user data (routes, history, RTDB tracking) before deletion
+    await window.scrubUserData(driverUid);
+
+    // Remove o documento do usuário do Firestore
     await deleteDoc(doc(db, "users", driverUid));
 
-    // Limpa a localização no Realtime Database para não gerar "fantasmas" no mapa
-    const adminKey = window.companyId || (currentUser ? currentUser.uid : null);
-    if (adminKey) {
-      await rtdbRemove(rtdbRef(rtdb, `locations/${adminKey}/${driverUid}`));
-    }
-
-    showToast(`✅ Perfil de "${name}" excluído com sucesso.`, "success");
+    // Mensagem solicitada pelo usuário
+    showToast("motorista excluido", "success");
+    
+    // Atualiza as listas na interface
+    if (typeof loadFleetDrivers === 'function') loadFleetDrivers();
+    if (window.refreshBuilderDriverList) window.refreshBuilderDriverList();
+    
   } catch(e) {
     console.error("Erro ao excluir motorista:", e);
     showToast("Erro ao excluir motorista: " + e.message, "error");
