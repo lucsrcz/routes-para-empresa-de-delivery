@@ -384,6 +384,7 @@ async function applyRoleUI() {
   const adminFleetCard = document.getElementById('adminFleetCard');
   const fleetStatusDesc = document.getElementById('fleetStatusDesc');
   const commissionRulesBtn = document.getElementById('commissionRulesBtn');
+  const commissionSimBtn = document.getElementById('commissionSimBtn');
   
   if (window.userRole === "admin") {
     document.body.classList.add('is-admin');
@@ -395,6 +396,7 @@ async function applyRoleUI() {
     const liveSpyBtn = document.getElementById('liveSpyBtn');
     if (liveSpyBtn) liveSpyBtn.style.display = 'flex';
     if (commissionRulesBtn) commissionRulesBtn.style.display = 'flex';
+    if (commissionSimBtn) commissionSimBtn.style.display = 'flex';
     const monthlyGoalsBtn = document.getElementById('monthlyGoalsBtn');
     if (monthlyGoalsBtn) monthlyGoalsBtn.style.display = 'flex';
     if (bottomNavAdmin) bottomNavAdmin.style.display = '';
@@ -496,6 +498,8 @@ async function applyRoleUI() {
     if (driverPanel) driverPanel.style.display = '';
     if (adminHubBtn) adminHubBtn.style.display = 'none';
     if (fleetManageBtn) fleetManageBtn.style.display = 'none';
+    if (commissionSimBtn) commissionSimBtn.style.display = 'none';
+    if (commissionRulesBtn) commissionRulesBtn.style.display = 'none';
     if (bottomNavAdmin) bottomNavAdmin.style.display = 'none';
     if (bottomNavDriver) bottomNavDriver.style.display = '';
     if (adminArea) adminArea.style.display = 'none';
