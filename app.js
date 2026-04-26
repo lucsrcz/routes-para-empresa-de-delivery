@@ -3143,22 +3143,18 @@ function fpRenderScheduleSequence() {
   container.innerHTML = '';
   window._fpSchedulePoints.forEach((loc, i) => {
     const item = document.createElement('div');
-    item.style.cssText = 'display:flex; align-items:center; background:var(--pr-surface); border:0.5px solid var(--pr-border); padding:5px 8px; border-radius:6px; gap:8px;';
-
-    const upBtn = i > 0
-      ? `<button class="ia-btn" style="width:22px; height:22px; font-size:13px; font-weight:bold; color:var(--pr-text-muted);" onclick="window.fpMoveSchedPoint(${i}, -1)" title="Subir">↑</button>`
-      : '<div style="width:22px;"></div>';
-    const downBtn = i < window._fpSchedulePoints.length - 1
-      ? `<button class="ia-btn" style="width:22px; height:22px; font-size:13px; font-weight:bold; color:var(--pr-text-muted);" onclick="window.fpMoveSchedPoint(${i}, 1)" title="Descer">↓</button>`
-      : '<div style="width:22px;"></div>';
+    item.className = 'route-sequence-item';
+    item.style.cssText = 'padding: 6px 10px; margin-bottom: 2px;';
 
     item.innerHTML = `
-      <div style="background:var(--pr-blue-dark); color:#fff; font-size:9px; font-weight:700; width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">${i + 1}</div>
-      <div style="flex:1; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--pr-text); font-weight:600;">${escapeHTML(loc.name || loc.originalInput)}</div>
-      <div style="display:flex; gap:2px; align-items:center;">
-        ${upBtn}
-        ${downBtn}
-        <button class="ia-btn" style="width:20px; height:20px; font-size:11px; color:#e06666;" onclick="window.fpRemoveSchedPoint(${i})" title="Remover">✕</button>
+      <div class="badge" style="width:20px; height:20px; font-size:10px;">${i + 1}</div>
+      <div class="name" style="font-size:12px; font-weight:600;">${escapeHTML(loc.name || loc.originalInput)}</div>
+      <div class="sequence-actions">
+        <div class="move-btns">
+          <button class="move-btn" onclick="window.fpMoveSchedPoint(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Subir">▲</button>
+          <button class="move-btn" onclick="window.fpMoveSchedPoint(${i}, 1)" ${i === window._fpSchedulePoints.length - 1 ? 'disabled' : ''} title="Descer">▼</button>
+        </div>
+        <button class="remove-point-btn" style="width:24px; height:24px; font-size:12px;" onclick="window.fpRemoveSchedPoint(${i})" title="Remover">✕</button>
       </div>
     `;
     container.appendChild(item);
@@ -3720,25 +3716,26 @@ function fpRenderEditSchedStops() {
 
   window._editSchedPoints.forEach((p, i) => {
     const item = document.createElement('div');
-    item.style.cssText = 'display:flex; align-items:center; background:var(--pr-surface); border:1px solid var(--pr-border); padding:8px 10px; border-radius:8px; gap:8px; transition: all 0.15s;';
+    item.className = 'route-sequence-item';
+    item.style.cssText = 'padding: 8px 12px; margin-bottom: 4px;';
 
-    const orderBtns = isEditable ? `
-      <div style="display:flex; flex-direction:column; gap:2px;">
-        ${i > 0 ? `<button class="ia-btn" style="width:20px; height:16px; font-size:11px; color:var(--pr-text-muted);" onclick="window.fpEditSchedMove(${i}, -1)">↑</button>` : '<div style="height:16px;"></div>'}
-        ${i < window._editSchedPoints.length - 1 ? `<button class="ia-btn" style="width:20px; height:16px; font-size:11px; color:var(--pr-text-muted);" onclick="window.fpEditSchedMove(${i}, 1)">↓</button>` : '<div style="height:16px;"></div>'}
+    const actions = isEditable ? `
+      <div class="sequence-actions">
+        <div class="move-btns">
+          <button class="move-btn" onclick="window.fpEditSchedMove(${i}, -1)" ${i === 0 ? 'disabled' : ''}>▲</button>
+          <button class="move-btn" onclick="window.fpEditSchedMove(${i}, 1)" ${i === window._editSchedPoints.length - 1 ? 'disabled' : ''}>▼</button>
+        </div>
+        <button class="remove-point-btn" style="width:26px; height:26px; font-size:13px;" onclick="window.fpEditSchedRemove(${i})">✕</button>
       </div>
     ` : '';
 
-    const removeBtn = isEditable ? `<button class="ia-btn" style="width:22px; height:22px; font-size:12px; color:#e74c3c;" onclick="window.fpEditSchedRemove(${i})">✕</button>` : '';
-
     item.innerHTML = `
-      <div style="background:var(--pr-blue-dark); color:#fff; font-size:10px; font-weight:700; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">${i + 1}</div>
-      <div style="flex:1; min-width:0;">
-        <div style="font-size:12px; font-weight:600; color:var(--pr-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(p.name)}</div>
-        ${p.lat && p.lng ? `<div style="font-size:9px; color:var(--pr-text-muted);">${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</div>` : ''}
+      <div class="badge" style="width:22px; height:22px; font-size:11px;">${i + 1}</div>
+      <div class="name" style="font-size:13px; font-weight:700;">
+        ${escapeHTML(p.name)}
+        ${p.lat && p.lng ? `<div style="font-size:9px; color:var(--pr-text-muted); font-weight:400; margin-top:2px;">${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</div>` : ''}
       </div>
-      ${orderBtns}
-      ${removeBtn}
+      ${actions}
     `;
     container.appendChild(item);
   });
