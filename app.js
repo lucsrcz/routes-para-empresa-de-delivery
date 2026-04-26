@@ -309,17 +309,33 @@ window.userRole = "driver"; // Padrão global
 window.companyId = null;
 
 // Helper para validar permissões
+/**
+ * Utilitário Sênior: Valida permissões de hierarquia.
+ * Admins e Co-Admins compartilham o nível administrativo.
+ */
 window.checkRole = function(role) {
+  const userRole = window.userRole || 'driver';
+  const isAdminLevel = (userRole === 'admin' || userRole === 'co-admin');
+  
+  // Se pedir 'admin', qualquer nível administrativo passa
   if (role === 'admin') {
-    if (window.userRole === 'admin' || window.userRole === 'co-admin') return true;
+    if (!isAdminLevel) {
+      console.warn(`[Permissões] Acesso negado para ADMIN. Atual: ${userRole}`);
+      showToast("Acesso Negado: Permissão de Administrador necessária.", "error");
+      return false;
+    }
+    return true;
   }
-  if (window.userRole !== role) {
-    console.warn(`[Permissões] Acesso negado para ${role}. Atual: ${window.userRole}`);
+  
+  // Para outros papéis, checagem estrita
+  if (userRole !== role) {
+    console.warn(`[Permissões] Acesso negado para ${role}. Atual: ${userRole}`);
     showToast("Acesso Negado: Permissão insuficiente.", "error");
     return false;
   }
   return true;
 };
+
 
 // ══════════════════════════════════════════════════════════
 // GLOBAL LOADER & FAIL-SAFE
@@ -372,150 +388,196 @@ function aplicarMensagemDaSemana(idElemento) {
   `;
 }
 
+// ══════════════════════════════════════════════════════════
+// SENIOR UI MANAGEMENT: Role-based Visibility & Initialization
+// ══════════════════════════════════════════════════════════
+
+/**
+ * UI Configuration Map
+ * Centraliza a visibilidade e textos por papel para evitar código duplicado.
+ */
+const ADMIN_LEVEL_UI = {
+  bodyClass: 'is-admin',
+  elements: {
+    'adminPanel': 'block',
+    'driverPanel': 'none',
+    'adminHubBtn': 'flex',
+    'fleetManageBtn': 'flex',
+    'liveSpyBtn': 'flex',
+    'commissionRulesBtn': 'flex',
+    'monthlyGoalsBtn': 'flex',
+    'bottomNavAdmin': 'block',
+    'bottomNavDriver': 'none',
+    'adminDriverArea': 'flex',
+    'dailyRouteCard': 'block',
+    'adminFleetCard': 'none',
+    'adminCardMessage': 'block',
+    'cardMotivacional': 'block'
+  },
+  textUpdates: {
+    'drcTitle': 'Rotas Futuras',
+    'drcDate': 'Programe rotas para seus motoristas'
+  }
+};
+
+const ROLE_UI_CONFIG = {
+  admin: ADMIN_LEVEL_UI,
+  'co-admin': ADMIN_LEVEL_UI,
+  driver: {
+    bodyClass: '',
+    elements: {
+      'adminPanel': 'none',
+      'driverPanel': 'block',
+      'adminHubBtn': 'none',
+      'fleetManageBtn': 'none',
+      'liveSpyBtn': 'none',
+      'commissionRulesBtn': 'none',
+      'monthlyGoalsBtn': 'none',
+      'bottomNavAdmin': 'none',
+      'bottomNavDriver': 'block',
+      'adminDriverArea': 'none',
+      'dailyRouteCard': 'block',
+      'adminFleetCard': 'none',
+      'adminCardMessage': 'none',
+      'cardMotivacional': 'none'
+    }
+  }
+};
+
+
+/**
+ * Main function to synchronize UI with the current user role.
+ */
 async function applyRoleUI() {
-  console.log("Seu nível de acesso detectado:", window.userRole);
-  
-  const cardMotivacional = document.getElementById('cardMotivacional');
-  const adminPanel = document.getElementById('adminPanel');
-  const driverPanel = document.getElementById('driverPanel');
-  const adminHubBtn = document.getElementById('adminHubBtn');
-  const fleetManageBtn = document.getElementById('fleetManageBtn');
-  const bottomNavAdmin = document.getElementById('bottomNavAdmin');
-  const bottomNavDriver = document.getElementById('bottomNavDriver');
-  const adminArea = document.getElementById('adminDriverArea');
-  const dailyRouteCard = document.getElementById('dailyRouteCard');
-  const adminFleetCard = document.getElementById('adminFleetCard');
-  const fleetStatusDesc = document.getElementById('fleetStatusDesc');
-  const commissionRulesBtn = document.getElementById('commissionRulesBtn');
-  const commissionSimBtn = document.getElementById('commissionSimBtn');
-  
-  if (window.userRole === "admin" || window.userRole === "co-admin") {
-    document.body.classList.add('is-admin');
-    // ═══ ADMIN VIEW ═══
-    if (adminPanel) adminPanel.style.display = '';
-    if (driverPanel) driverPanel.style.display = 'none';
-    if (adminHubBtn) adminHubBtn.style.display = 'flex';
-    if (fleetManageBtn) fleetManageBtn.style.display = 'flex';
-    const liveSpyBtn = document.getElementById('liveSpyBtn');
-    if (liveSpyBtn) liveSpyBtn.style.display = 'flex';
-    if (commissionRulesBtn) commissionRulesBtn.style.display = 'flex';
-    if (commissionSimBtn) commissionSimBtn.style.display = 'flex';
-    const monthlyGoalsBtn = document.getElementById('monthlyGoalsBtn');
-    if (monthlyGoalsBtn) monthlyGoalsBtn.style.display = 'flex';
-    if (bottomNavAdmin) bottomNavAdmin.style.display = '';
-    if (bottomNavDriver) bottomNavDriver.style.display = 'none';
-    if (adminArea) adminArea.style.display = 'flex';
-    if (dailyRouteCard) {
-      dailyRouteCard.style.display = '';
-    }
-    if (adminFleetCard) adminFleetCard.style.display = 'none';
-    const adminMsg = document.getElementById('adminCardMessage');
-    if (adminMsg) adminMsg.style.display = 'block';
-    
-    // Show and populate motivational card for Admin
-    if (cardMotivacional) {
-      cardMotivacional.style.display = 'block';
-      aplicarMensagemDaSemana('cardMotivacional');
-    }
-    
-    // Repurpose the card for Admin: "Rotas Futuras"
-    const drcTitle = document.getElementById('drcTitle');
-    const drcDate = document.getElementById('drcDate');
-    if (drcTitle) drcTitle.textContent = 'Rotas Futuras';
-    if (drcDate) drcDate.textContent = 'Programe rotas para seus motoristas';
-    
-    // Populate driver radio list for route assignment in Builder
-    window._fleetDrivers = [];
-    try {
-      const q = query(collection(db, "users"), where("adminId", "==", window.companyId));
-      const querySnapshot = await getDocs(q).catch(e => {
-        console.warn("Falha ao buscar motoristas (index possível?):", e);
-        return { empty: true, forEach: () => {} };
-      });
-      const driverListEl = document.getElementById('builderDriverList');
-      window._selectedDriverUid = '';
+  const role = window.userRole || 'driver';
+  const config = ROLE_UI_CONFIG[role] || ROLE_UI_CONFIG.driver;
 
-      if (driverListEl) {
-        driverListEl.innerHTML = '';
-        
-        // Removemos a opção "Para mim (Admin)" a pedido do usuário
-        window._selectedDriverUid = ''; // default empty
+  console.log(`[UI] Sincronizando ambiente para nível: ${role.toUpperCase()}`);
 
-
-        querySnapshot.forEach((docSnap) => {
-          const u = docSnap.data();
-          if (u.role === "driver") {
-            const displayName = u.nome || 'Motorista sem nome';
-            const initial = displayName.charAt(0).toUpperCase();
-            window._fleetDrivers.push({uid: docSnap.id, nome: u.nome, email: u.email});
-            
-            const label = document.createElement('label');
-            label.className = 'bdr-item';
-            label.dataset.uid = docSnap.id;
-            label.dataset.name = displayName;
-            
-            // Premium style for driver selection
-            label.innerHTML = `
-              <input type="radio" name="driverRadio" value="${docSnap.id}" class="bdr-radio"/>
-              <div class="bdr-avatar" style="background: linear-gradient(135deg, var(--pr-blue-dark), var(--pr-blue-mid)); color: #fff; font-weight: 800;">${initial}</div>
-              <div class="bdr-info">
-                <div class="bdr-name" style="font-size:15px; font-weight:700; color:var(--pr-text);">${escapeHTML(displayName)}</div>
-                <div class="bdr-email" style="font-size:11px; color:var(--pr-text-muted);">${escapeHTML(u.email || '')}</div>
-              </div>
-              <div style="flex-shrink: 0; display:flex; align-items:center; gap:6px;">
-                <div style="width: 8px; height: 8px; border-radius: 50%; background: #27ae60; box-shadow: 0 0 8px rgba(39, 174, 96, 0.4);"></div>
-                <span class="bdr-dot"></span>
-              </div>
-            `;
-            label.onclick = (e) => { e.preventDefault(); window.selectBuilderDriver(docSnap.id); };
-            driverListEl.appendChild(label);
-          }
-        });
-        
-        if (fleetStatusDesc) {
-          const count = window._fleetDrivers.length;
-          fleetStatusDesc.textContent = count > 0 
-            ? `${count} motorista${count > 1 ? 's' : ''} na frota`
-            : 'Adicione motoristas';
-        }
-        
-        // Auto-selecionar o primeiro motorista da lista, se houver
-        if (window._fleetDrivers.length > 0 && !window._selectedDriverUid) {
-          window.selectBuilderDriver(window._fleetDrivers[0].uid);
-        }
-      }
-    } catch(e) {
-      console.warn("Erro ao carregar lista de motoristas em applyRoleUI:", e);
-    }
-
-    // Cancel old driver listeners
-    if (driverMissionsUnsubscribe) {
-      driverMissionsUnsubscribe();
-      driverMissionsUnsubscribe = null;
-    }
-
+  // 1. Manage Body Classes
+  if (config.bodyClass) {
+    document.body.classList.add(config.bodyClass);
   } else {
     document.body.classList.remove('is-admin');
-    // ═══ DRIVER VIEW ═══
-    if (adminPanel) adminPanel.style.display = 'none';
-    if (driverPanel) driverPanel.style.display = '';
-    if (adminHubBtn) adminHubBtn.style.display = 'none';
-    if (fleetManageBtn) fleetManageBtn.style.display = 'none';
-    if (commissionSimBtn) commissionSimBtn.style.display = 'none';
-    if (commissionRulesBtn) commissionRulesBtn.style.display = 'none';
-    if (bottomNavAdmin) bottomNavAdmin.style.display = 'none';
-    if (bottomNavDriver) bottomNavDriver.style.display = '';
-    if (adminArea) adminArea.style.display = 'none';
-    if (dailyRouteCard) {
-      dailyRouteCard.style.display = '';
+  }
+
+  // 2. Declarative Element Visibility Toggle
+  Object.entries(config.elements).forEach(([id, displayValue]) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = displayValue === 'block' ? '' : displayValue;
+  });
+
+  // 3. Declarative Text Updates
+  if (config.textUpdates) {
+    Object.entries(config.textUpdates).forEach(([id, text]) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    });
+  }
+
+  // 4. Role-Specific Logic Blocks
+  if (role === 'admin' || role === 'co-admin') {
+    await initAdminEnvironment();
+  } else if (role === 'driver') {
+    initDriverEnvironment();
+  }
+}
+
+/**
+ * Initializes Admin-only features and data.
+ */
+async function initAdminEnvironment() {
+  // Show and populate motivational card
+  aplicarMensagemDaSemana('cardMotivacional');
+
+  // Cancel any active driver listeners
+  if (driverMissionsUnsubscribe) {
+    driverMissionsUnsubscribe();
+    driverMissionsUnsubscribe = null;
+  }
+
+  // Refresh Fleet/Driver selection list
+  await refreshBuilderDriverList();
+}
+
+/**
+ * Initializes Driver-only features and data.
+ */
+function initDriverEnvironment() {
+  loadDriverMissions();
+}
+
+/**
+ * Populates the driver selection list in the Route Builder (Admin only).
+ */
+async function refreshBuilderDriverList() {
+  const driverListEl = document.getElementById('builderDriverList');
+  const fleetStatusDesc = document.getElementById('fleetStatusDesc');
+  if (!driverListEl) return;
+
+  window._fleetDrivers = [];
+  window._selectedDriverUid = '';
+  driverListEl.innerHTML = '<div style="padding:10px; font-size:11px; color:var(--pr-text-muted);">Carregando motoristas...</div>';
+
+  try {
+    const q = query(collection(db, "users"), where("adminId", "==", window.companyId));
+    const querySnapshot = await getDocs(q).catch(e => {
+      console.warn("Falha ao buscar motoristas:", e);
+      return { empty: true };
+    });
+
+    driverListEl.innerHTML = '';
+    
+    if (querySnapshot.empty) {
+      driverListEl.innerHTML = '<div style="padding:10px; font-size:11px; color:var(--pr-text-muted);">Nenhum motorista vinculado.</div>';
     }
-    if (adminFleetCard) adminFleetCard.style.display = 'none'; // Hide fleet card
-    
-    // Start listening for driver missions
-    loadDriverMissions();
-    
-    // Hide motivational card for Driver
-    if (cardMotivacional) cardMotivacional.style.display = 'none';
+
+    querySnapshot.forEach((docSnap) => {
+      const u = docSnap.data();
+      // O builder de rotas só deve mostrar motoristas, não co-admins
+      if (u.role === "driver") {
+        const displayName = u.nome || 'Motorista sem nome';
+        const initial = displayName.charAt(0).toUpperCase();
+        window._fleetDrivers.push({ uid: docSnap.id, nome: u.nome, email: u.email });
+
+        const label = document.createElement('label');
+        label.className = 'bdr-item';
+        label.dataset.uid = docSnap.id;
+        
+        label.innerHTML = `
+          <input type="radio" name="driverRadio" value="${docSnap.id}" class="bdr-radio"/>
+          <div class="bdr-avatar" style="background: linear-gradient(135deg, var(--pr-blue-dark), var(--pr-blue-mid)); color: #fff; font-weight: 800;">${initial}</div>
+          <div class="bdr-info">
+            <div class="bdr-name" style="font-size:14px; font-weight:700; color:var(--pr-text);">${escapeHTML(displayName)}</div>
+            <div class="bdr-email" style="font-size:10px; color:var(--pr-text-muted);">${escapeHTML(u.email || '')}</div>
+          </div>
+          <div style="flex-shrink: 0; display:flex; align-items:center; gap:6px;">
+            <div style="width: 7px; height: 7px; border-radius: 50%; background: #27ae60; box-shadow: 0 0 8px rgba(39, 174, 96, 0.4);"></div>
+          </div>
+        `;
+        label.onclick = (e) => { 
+          e.preventDefault(); 
+          window.selectBuilderDriver(docSnap.id); 
+        };
+        driverListEl.appendChild(label);
+      }
+    });
+
+
+    if (fleetStatusDesc) {
+      const count = window._fleetDrivers.length;
+      fleetStatusDesc.textContent = count > 0 
+        ? `${count} motorista${count > 1 ? 's' : ''} na frota`
+        : 'Adicione motoristas';
+    }
+
+    // Auto-select first driver
+    if (window._fleetDrivers.length > 0) {
+      window.selectBuilderDriver(window._fleetDrivers[0].uid);
+    }
+  } catch (e) {
+    console.error("Erro ao atualizar lista de motoristas:", e);
+    driverListEl.innerHTML = '<div style="color:red; font-size:11px;">Erro ao carregar frota.</div>';
   }
 }
 
@@ -1451,27 +1513,6 @@ onAuthStateChanged(auth, async (user) => {
         window.userRole = udata.role || "pending";
         window.adminId = udata.adminId || null;
 
-        // Listener em tempo real para mudanças no perfil (ex: desvínculo ou promoção)
-        onSnapshot(userRef, (snap) => {
-          if (!snap.exists()) return;
-          const newData = snap.data();
-          if (newData.role !== window.userRole || newData.companyId !== window.companyId) {
-            console.log('[Auth] Mudança detectada no perfil! Atualizando permissões...');
-            window.userRole = newData.role || 'pending';
-            window.adminId = newData.adminId || null;
-            window.companyId = newData.companyId || newData.adminId || currentUser.uid;
-            window.currentUserData = newData;
-            
-            if (window.userRole === 'pending') {
-              document.getElementById('rolePickerModal').classList.add('active');
-            } else {
-              document.getElementById('rolePickerModal').classList.remove('active');
-            }
-            applyRoleUI();
-            loadLocations();
-          }
-        });
-
         // ── Auto-patch: corrige contas criadas ANTES do campo companyId existir ──
         if ((udata.role === 'admin' || udata.role === 'driver') && !udata.companyId) {
           const fixedCompanyId = udata.adminId || currentUser.uid;
@@ -1945,7 +1986,7 @@ window.saveLocation = async function() {
 function loadLocations() {
   if(!currentUser) return;
   
-  if (window.userRole === "admin" || window.userRole === "co-admin") {
+  if (window.userRole === "admin") {
     const q = query(collection(db, "users", window.companyId, "locations"), orderBy("name", "asc"));
     onSnapshot(q, (snapshot) => {
       allLocations = [];
@@ -2047,7 +2088,7 @@ function loadLocations() {
       if(mS) mS.textContent = data.stopsCount || 0;
       
       // Título: "Rota de Hoje" + Visor de Status (apenas para motoristas)
-      if (window.userRole !== 'admin' && window.userRole !== 'co-admin') {
+      if (window.userRole !== 'admin') {
         const drcTitle = document.getElementById('drcTitle');
         const st = data.status || "Pendente";
         let stColor = st === "Pendente" ? "orange" : (st === "Concluída" ? "#27ae60" : "#1A6BAF");
@@ -2476,7 +2517,7 @@ window.generateManualRoute = async function() {
     // 2) Identificar para quem despachar a rota
     let targetUid = currentUser.uid;
     let targetDriverName = '';
-    if ((window.userRole === "admin" || window.userRole === "co-admin") && window._selectedDriverUid) {
+    if (window.userRole === "admin" && window._selectedDriverUid) {
       targetUid = window._selectedDriverUid;
       const selectedCard = document.querySelector('.bdr-item.selected');
       targetDriverName = selectedCard ? selectedCard.dataset.name : 'Motorista';
@@ -2597,7 +2638,7 @@ window.openRouteFromCard = function(evt) {
 
 // Card click handler — abre fleet panel (admin) ou rota (driver)
 window.handleDailyCardClick = function() {
-  if (window.userRole === 'admin' || window.userRole === 'co-admin') {
+  if (window.userRole === 'admin') {
     window.openFleetPanel();
   } else {
     if (!window.activeRouteData) {
@@ -3531,7 +3572,7 @@ window.startScheduledRouteDispatcher = function() {
   };
 
   // Configurar listeners baseado no papel do usuario
-  if (window.userRole === 'admin' || window.userRole === 'co-admin') {
+  if (window.userRole === 'admin') {
     // Admin: escutar rotas de todos os motoristas vinculados
     const driversQ = query(collection(db, "users"), where("adminId", "==", window.companyId || currentUser.uid));
     getDocs(driversQ).then(driversSnap => {
@@ -3632,7 +3673,7 @@ window.checkAndDispatchScheduledRoutes = async function() {
 
   if (window.userRole === 'driver') {
     await dispatchForDriver(currentUser.uid);
-  } else if (window.userRole === 'admin' || window.userRole === 'co-admin') {
+  } else if (window.userRole === 'admin') {
     try {
       const q = query(collection(db, "users"), where("adminId", "==", window.companyId || currentUser.uid));
       const driversSnap = await getDocs(q);
@@ -3915,7 +3956,7 @@ window.fpSaveEditSchedule = async function() {
 // ══════════════════════════════════════════════════════════
 
 async function cleanupExpiredInvitesAndKeys() {
-  if (window.userRole !== 'admin' && window.userRole !== 'co-admin') return;
+  if (window.userRole !== 'admin') return;
   
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
@@ -4061,23 +4102,36 @@ async function loadFleetDrivers() {
       const initial = displayName.charAt(0).toUpperCase();
 
       const isActive = u.adminId === window.companyId;
-      const statusHtml = isActive 
-        ? `<span style="font-size: 9px; background: #27ae60; color: #fff; padding: 3px 10px; border-radius: 10px; font-weight: bold;">Ativo</span>`
-        : `<span style="font-size: 9px; background: #95a5a6; color: #fff; padding: 3px 10px; border-radius: 10px; font-weight: bold;">Desativado</span>`;
+      const roleText = u.role === 'co-admin' ? 'Co-Admin' : (u.role === 'admin' ? 'Admin' : 'Motorista');
+      const roleColor = u.role === 'co-admin' ? '#1A6BAF' : (u.role === 'admin' ? '#8e44ad' : '#7f8c8d');
+      
+      const statusHtml = `
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+          <span style="font-size: 9px; background: ${roleColor}; color: #fff; padding: 2px 8px; border-radius: 10px; font-weight: bold;">${roleText}</span>
+          ${isActive 
+            ? `<span style="font-size: 8px; color: #27ae60; font-weight: bold;">● Ativo</span>`
+            : `<span style="font-size: 8px; color: #95a5a6; font-weight: bold;">○ Desativado</span>`
+          }
+        </div>
+      `;
 
-      const roleBtnHtml = u.role === 'co-admin'
-        ? `<button onclick="event.stopPropagation(); window.demoteToDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#9b59b6; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Rebaixar a Motorista</button>`
-        : `<button onclick="event.stopPropagation(); window.promoteToCoAdmin('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#f39c12; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Promover a Co-Admin</button>`;
+      const unlinkBtnHtml = isActive
+        ? `<button onclick="event.stopPropagation(); window.unlinkDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#e67e22; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Desvincular</button>`
+        : `<button onclick="event.stopPropagation(); window.relinkDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#27ae60; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Vincular</button>`;
 
-      const unlinkBtnHtml = `<button onclick="event.stopPropagation(); window.unlinkDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#e67e22; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Desvincular</button>`;
+      const isMe = uid === currentUser.uid;
+      const canManage = !isMe && (window.userRole === 'admin' || (window.userRole === 'co-admin' && u.role === 'driver'));
 
+      const card = document.createElement('div');
+      card.style.cssText = "background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px;";
+      
       card.innerHTML = `
         <div style="display: flex; align-items: center; gap: 12px;">
-          <div id="fleet_avatar_${uid}" style="width: 40px; height: 40px; border-radius: 50%; background: ${u.role === 'co-admin' ? 'linear-gradient(135deg, #f39c12, #d35400)' : 'linear-gradient(135deg, var(--pr-blue-mid), var(--pr-blue-dark))'}; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; font-weight: 700; flex-shrink: 0; border: ${u.role === 'co-admin' ? '2px solid #fff' : 'none'};">
+          <div id="fleet_avatar_${uid}" style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--pr-blue-mid), var(--pr-blue-dark)); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; font-weight: 700; flex-shrink: 0;">
             ${initial}
           </div>
           <div style="flex: 1; min-width: 0;">
-            <div id="fleet_name_${uid}" class="text-dark-auto" style="font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(displayName)} ${u.role === 'co-admin' ? '<span style="color:#f39c12; font-size:9px;">(Co-Admin)</span>' : ''}</div>
+            <div id="fleet_name_${uid}" class="text-dark-auto" style="font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(displayName)}</div>
             <div style="font-size: 10px; color: var(--pr-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(u.email || '')}</div>
           </div>
           <div style="flex-shrink: 0;">
@@ -4092,13 +4146,21 @@ async function loadFleetDrivers() {
           <button onclick="event.stopPropagation(); window.saveDriverName('${uid}', this)" 
             style="border:none; background:#1A6BAF; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Salvar</button>
         </div>
-        <div style="display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap: wrap;">
-          ${unlinkBtnHtml}
-          ${roleBtnHtml}
-          <button onclick="event.stopPropagation(); window.deleteDriver('${uid}', '${escapeHTML(displayName)}')" 
-            style="border:none; background:#c0392b; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap; margin-left:auto;">Excluir</button>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+          ${canManage ? `
+            ${unlinkBtnHtml}
+            ${window.userRole === 'admin' ? `
+              ${u.role === 'driver' 
+                ? `<button onclick="event.stopPropagation(); window.promoteToCoAdmin('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#1A6BAF; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer;">Promover</button>`
+                : `<button onclick="event.stopPropagation(); window.demoteToDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#95a5a6; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer;">Rebaixar</button>`
+              }
+            ` : ''}
+            <button onclick="event.stopPropagation(); window.deleteDriver('${uid}', '${escapeHTML(displayName)}')" 
+              style="border:none; background:#c0392b; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap; margin-left:auto;">Excluir</button>
+          ` : '<div style="font-size:10px; color:var(--pr-text-muted); font-style:italic;">Sem permissão para gerenciar este perfil</div>'}
         </div>
       `;
+
       
       list.appendChild(card);
     });
@@ -4119,56 +4181,89 @@ async function loadFleetDrivers() {
 
 window.unlinkDriver = async function(driverUid, name) {
   if (!checkRole('admin')) return;
-  const confirm = await window.showConfirm(`🚨 Deseja REMOVER o motorista "${name}" da sua frota?\n\nEle será desconectado e precisará de um novo convite para entrar novamente.`, "Remover Motorista", "Confirmar Remoção");
+  const confirm = await window.showConfirm(`Deseja desvincular o usuário "${name}" da sua frota?\nEle perderá acesso imediato ao ambiente e precisará de um novo convite para retornar.`, "Desvincular Usuário", "Desvincular");
   if (!confirm) return;
   
   try {
-    // Deep Unlink: Remove from company context and reset role
+    // Para "sumir" totalmente, removemos companyId e adminId, e resetamos o papel
     await updateDoc(doc(db, "users", driverUid), { 
       adminId: null, 
-      companyId: null, 
-      role: 'pending' 
+      companyId: null,
+      role: 'pending',
+      currentStatus: null,
+      lastRouteSummary: null
     });
-
-    // Cleanup RTDB tracking
-    const adminKey = window.companyId;
-    if (adminKey) {
-      await rtdbRemove(rtdbRef(rtdb, `locations/${adminKey}/${driverUid}`));
-    }
-
-    showToast(`"${name}" foi removido com sucesso.`, "success");
+    showToast("Usuário desvinculado e removido do ambiente.", "success");
     loadFleetDrivers();
+    if (window.refreshBuilderDriverList) window.refreshBuilderDriverList();
   } catch(e) {
-    showToast("Erro ao remover: " + e.message, "error");
+    showToast("Erro ao desvincular: " + e.message, "error");
   }
 };
 
-window.relinkDriver = async function(driverUid, name) {
-  if (!checkRole('admin')) return;
-  const confirm = await window.showConfirm(`Deseja vincular o motorista "${name}" novamente à sua frota?`, "Vincular Motorista", "Vincular");
+window.promoteToCoAdmin = async function(driverUid, name) {
+  if (window.userRole !== 'admin') return;
+  const confirm = await window.showConfirm(`Deseja promover "${name}" a Co-Admin?\nEle terá permissões administrativas limitadas.`, "Promover Usuário", "Promover");
   if (!confirm) return;
   
   try {
-    await updateDoc(doc(db, "users", driverUid), { 
-      adminId: window.companyId,
-      companyId: window.companyId,
-      role: 'driver' 
-    });
-    showToast("Motorista vinculado com sucesso.", "success");
+    await updateDoc(doc(db, "users", driverUid), { role: 'co-admin' });
+    showToast(`${name} agora é Co-Admin.`, "success");
     loadFleetDrivers();
   } catch(e) {
-    showToast("Erro ao vincular: " + e.message, "error");
+    showToast("Erro ao promover: " + e.message, "error");
+  }
+};
+
+window.demoteFromCoAdmin = async function(driverUid, name) {
+  if (window.userRole !== 'admin') return;
+  const confirm = await window.showConfirm(`Deseja remover o cargo de Co-Admin de "${name}"?`, "Remover Cargo", "Confirmar");
+  if (!confirm) return;
+  
+  try {
+    await updateDoc(doc(db, "users", driverUid), { role: 'driver' });
+    showToast(`${name} voltou a ser motorista.`, "success");
+    loadFleetDrivers();
+  } catch(e) {
+    showToast("Erro ao rebaixar: " + e.message, "error");
+  }
+};
+
+window.deleteDriver = async function(driverUid, name) {
+  if (!checkRole('admin')) return;
+  const confirm = await window.showConfirm(`ATENÇÃO: Deseja EXCLUIR permanentemente o usuário "${name}"?\nEsta ação removerá o vínculo com a empresa. Para voltar, ele precisará de um novo convite.`, "Excluir Usuário", "🗑️ Excluir");
+  if (!confirm) return;
+  
+  try {
+    // O usuário solicitou que ele "suma" do ambiente. Resetar companyId é o gatilho principal.
+    await updateDoc(doc(db, "users", driverUid), { 
+      adminId: null, 
+      companyId: null,
+      role: 'pending',
+      currentStatus: null,
+      lastRouteSummary: null
+    });
+    showToast("Usuário excluído do ambiente da empresa.", "success");
+    loadFleetDrivers();
+    if (window.refreshBuilderDriverList) window.refreshBuilderDriverList();
+  } catch(e) {
+    showToast("Erro ao excluir: " + e.message, "error");
   }
 };
 
 window.promoteToCoAdmin = async function(driverUid, name) {
   if (!checkRole('admin')) return;
-  const confirm = await window.showConfirm(`Deseja promover "${name}" a Co-Admin?\nEle terá permissões para gerenciar motoristas e rotas.`, "Promover a Co-Admin", "Promover");
+  if (window.userRole !== 'admin') {
+    showToast("Apenas o proprietário (Admin) pode promover Co-Admins.", "error");
+    return;
+  }
+  
+  const confirm = await window.showConfirm(`Deseja promover "${name}" a Co-Administrador?\nEle terá permissões para gerenciar a frota e criar rotas.`, "Promover a Co-Admin", "🚀 Promover");
   if (!confirm) return;
-
+  
   try {
     await updateDoc(doc(db, "users", driverUid), { role: 'co-admin' });
-    showToast(`"${name}" agora é Co-Admin.`, "success");
+    showToast(`${name} agora é um Co-Administrador!`, "success");
     loadFleetDrivers();
   } catch(e) {
     showToast("Erro ao promover: " + e.message, "error");
@@ -4177,17 +4272,23 @@ window.promoteToCoAdmin = async function(driverUid, name) {
 
 window.demoteToDriver = async function(driverUid, name) {
   if (!checkRole('admin')) return;
-  const confirm = await window.showConfirm(`Deseja rebaixar "${name}" para Motorista comum?`, "Rebaixar a Motorista", "Confirmar");
+  if (window.userRole !== 'admin') {
+    showToast("Apenas o proprietário (Admin) pode alterar cargos administrativos.", "error");
+    return;
+  }
+  
+  const confirm = await window.showConfirm(`Deseja rebaixar "${name}" a Motorista?\nEle perderá as permissões administrativas.`, "Rebaixar para Motorista", "⬇️ Rebaixar");
   if (!confirm) return;
-
+  
   try {
     await updateDoc(doc(db, "users", driverUid), { role: 'driver' });
-    showToast(`"${name}" agora é Motorista.`, "success");
+    showToast(`${name} agora é um Motorista.`, "success");
     loadFleetDrivers();
   } catch(e) {
     showToast("Erro ao rebaixar: " + e.message, "error");
   }
 };
+
 
 window.saveDriverName = async function(driverUid, btn) {
   const input = document.getElementById('name_' + driverUid);
@@ -5312,7 +5413,7 @@ const _spyRoleCheckInterval = setInterval(() => {
 
   // ── Abrir / Fechar modal ──────────────────────────────────
   window.openMonthlyGoalsModal = async function() {
-    if (window.userRole !== 'admin' && window.userRole !== 'co-admin') {
+    if (window.userRole !== 'admin') {
       showToast('Apenas administradores podem acessar as metas mensais.', 'error');
       return;
     }
