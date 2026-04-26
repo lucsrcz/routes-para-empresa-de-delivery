@@ -840,9 +840,10 @@ window.confirmDelivery = async function() {
     const snapshot = await uploadBytes(sRef, deliveryPhotoBuffer);
     photoUrl = await getDownloadURL(snapshot.ref);
 
-    // Calcular comissão
+    // Calcular comissão — retorna % que multiplicamos pelo valor em R$
     console.log("[Delivery] Calculando comissão...");
-    const commission = await calculateCommissionValue(weight);
+    const commissionPct = await calculateCommissionValue(weight);
+    const commission = (cargoValue * commissionPct) / 100;
 
     // Deduzir da meta mensal
     if (typeof window.deductFromMonthlyGoal === 'function') {
@@ -886,7 +887,7 @@ window.confirmDelivery = async function() {
       proofPhotoUrl: photoUrl,
       totalCommission: currentTotalCommission + commission,
       finishedBy: currentUser.uid,
-      expectedWeight: newExpectedWeight, 
+      expectedWeight: newExpectedWeight,
       expectedValue: newExpectedValue
     };
     batch.update(routeDocRef, routePayload);
@@ -926,43 +927,270 @@ window.confirmDelivery = async function() {
   }
 };
 
-async function calculateCommissionValue(weight) {
-  if (!window.companyId) {
-    console.warn("[Comm] companyId não definido, usando comissão 0.");
-    return 0;
-  }
+window.calculateCommission = async function(weight, value) {
+  if (!window.companyId) return 0;
   try {
     const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
     const snapshot = await getDocs(q);
-    let fee = 0;
+    if (snapshot.empty) return 0;
+
+    let rules = [];
+    snapshot.forEach(docSnap => rules.push(docSnap.data()));
     
-    const today = new Date().getDate();
-    
-    snapshot.forEach(docSnap => {
-      const rule = docSnap.data();
-      const start = rule.cycleStart || 1;
-      const end = rule.cycleEnd || 31;
-      
-      let inCycle = false;
-      if (start <= end) {
-        inCycle = today >= start && today <= end;
-      } else {
-        inCycle = today >= start || today <= end;
-      }
-      
-      if (inCycle) {
-        if (weight >= rule.min && weight <= rule.max) {
-          fee = rule.value;
-        }
-      }
+    // 1. Ordena as faixas por peso mínimo (Sênior approach: Garante consistência)
+    rules.sort((a, b) => (a.min || 0) - (b.min || 0));
+
+    // 2. Encontra a faixa correspondente
+    // O motorista se encaixa se weight >= min e weight <= max (ou max é null/infinity)
+    const activeRule = rules.find(r => {
+      const min = parseFloat(r.min) || 0;
+      const max = parseFloat(r.max) || Infinity;
+      const currentWeight = parseFloat(weight) || 0;
+      return currentWeight >= min && currentWeight <= max;
     });
+
+    if (activeRule) {
+      const percentage = parseFloat(activeRule.pct) || 0;
+      const baseValue = parseFloat(value) || 0;
+      return (baseValue * percentage) / 100;
+    }
     
-    return fee;
+    return 0;
   } catch (e) {
-    console.warn("Erro ao calcular comissão:", e);
+    console.error("[Commission] Erro no cálculo:", e);
+    return 0;
+  }
+};
+
+// Alias interno — utilizado por confirmDelivery() para calcular comissão na entrega
+async function calculateCommissionValue(weight) {
+  // Usa a mesma lógica do calculateCommission mas sem precisar de "value"
+  // O valor real será computado durante a finalização
+  if (!window.companyId) return 0;
+  try {
+    const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return 0;
+
+    let rules = [];
+    snapshot.forEach(docSnap => rules.push(docSnap.data()));
+    rules.sort((a, b) => (a.min || 0) - (b.min || 0));
+
+    const activeRule = rules.find(r => {
+      const min = parseFloat(r.min) || 0;
+      const max = parseFloat(r.max) || Infinity;
+      const w = parseFloat(weight) || 0;
+      return w >= min && w <= max;
+    });
+
+    // Retorna a PORCENTAGEM para ser usada depois (confirmDelivery multiplica pelo valor)
+    if (activeRule) return parseFloat(activeRule.pct) || 0;
+    return 0;
+  } catch (e) {
+    console.error("[Commission] Erro em calculateCommissionValue:", e);
     return 0;
   }
 }
+
+// ══════════════════════════════════════════════════════════
+// SIMULADOR DE COMISSÃO — Motoristas e Admin
+// ══════════════════════════════════════════════════════════
+
+window.openCommissionSimulator = async function() {
+  const modal = document.getElementById('commissionSimulatorModal');
+  if (!modal) return;
+  modal.classList.add('active');
+
+  // Pré-carregar metas do ciclo ativo (se existirem) para exibição contextual
+  try {
+    const { getDoc: _gd, doc: _doc } = await import("https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js");
+    const compId = window.companyId;
+    if (compId) {
+      const goalRef = doc(db, "companies", compId, "goals", "active");
+      const snap = await getDoc(goalRef);
+      if (snap.exists()) {
+        const g = snap.data();
+        const wMin = document.getElementById('simMetaPeso');
+        const vMeta = document.getElementById('simMetaValor');
+        if (wMin && g.weightMin) wMin.placeholder = `Meta: ${g.weightMin}–${g.weightMax || '∞'} kg`;
+        if (vMeta && g.revGoal) vMeta.placeholder = `Meta: R$ ${parseFloat(g.revGoal).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+      }
+    }
+  } catch(e) { /* Sem metas configuradas — ignora silenciosamente */ }
+
+  // Limpar resultados anteriores
+  window.resetCommissionSimulator();
+};
+
+window.closeCommissionSimulator = function() {
+  const modal = document.getElementById('commissionSimulatorModal');
+  if (modal) modal.classList.remove('active');
+};
+
+window.resetCommissionSimulator = function() {
+  const result = document.getElementById('simResult');
+  if (result) {
+    result.style.display = 'none';
+  }
+};
+
+window.runCommissionSimulator = async function() {
+  const pesoInput  = document.getElementById('simPeso');
+  const valorInput = document.getElementById('simValor');
+  const resultBox  = document.getElementById('simResult');
+  const btn        = document.getElementById('simBtn');
+
+  const peso  = parseFloat(pesoInput?.value);
+  const valor = parseFloat(valorInput?.value);
+
+  if (isNaN(peso) || peso <= 0) {
+    showToast("Informe o peso entregue em kg.", "warning");
+    pesoInput?.focus();
+    return;
+  }
+  if (isNaN(valor) || valor <= 0) {
+    showToast("Informe o valor transportado em R$.", "warning");
+    valorInput?.focus();
+    return;
+  }
+
+  // Feedback visual
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Calculando...";
+  }
+
+  try {
+    // 1. Buscar regras de comissão
+    const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
+    const snapshot = await getDocs(q);
+
+    let rules = [];
+    snapshot.forEach(docSnap => rules.push({ id: docSnap.id, ...docSnap.data() }));
+    rules.sort((a, b) => (a.min || 0) - (b.min || 0));
+
+    // 2. Encontrar faixa ativa
+    const activeRule = rules.find(r => {
+      const min = parseFloat(r.min) || 0;
+      const max = parseFloat(r.max) || Infinity;
+      return peso >= min && peso <= max;
+    });
+
+    let pct = 0;
+    let ruleName = "Nenhuma faixa encontrada";
+    let ruleRange = "";
+    let comissaoValor = 0;
+
+    if (activeRule) {
+      pct = parseFloat(activeRule.pct) || 0;
+      ruleName = activeRule.title || "Faixa de Comissão";
+      const maxText = activeRule.max ? `${activeRule.max}kg` : "∞";
+      ruleRange = `${activeRule.min}kg – ${maxText}`;
+      comissaoValor = (valor * pct) / 100;
+    }
+
+    // 3. Calcular progresso das metas (se existirem)
+    let metaPesoMin = null, metaPesoMax = null, metaValor = null;
+    const simMetaPeso  = parseFloat(document.getElementById('simMetaPeso')?.value);
+    const simMetaValor = parseFloat(document.getElementById('simMetaValor')?.value);
+    if (!isNaN(simMetaPeso)  && simMetaPeso  > 0) metaPesoMin = simMetaPeso;
+    if (!isNaN(simMetaValor) && simMetaValor > 0) metaValor  = simMetaValor;
+
+    const progressoPeso  = metaPesoMin  ? Math.min(100, (peso  / metaPesoMin)  * 100) : null;
+    const progressoValor = metaValor    ? Math.min(100, (valor / metaValor)    * 100) : null;
+
+    const atingiuPeso  = metaPesoMin  ? peso  >= metaPesoMin  : null;
+    const atingiuValor = metaValor    ? valor >= metaValor    : null;
+
+    // 4. Renderizar resultado
+    if (resultBox) {
+      resultBox.style.display = 'block';
+
+      // Metas HTML
+      let metasHtml = '';
+      if (metaPesoMin !== null) {
+        const barColor = atingiuPeso ? '#27ae60' : '#1A6BAF';
+        const badge    = atingiuPeso ? '✅ Meta atingida!' : `Faltam ${(metaPesoMin - peso).toFixed(1)} kg`;
+        metasHtml += `
+          <div style="margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <span style="font-size:11px;font-weight:700;color:var(--pr-text-muted);">⚖ Meta de Peso</span>
+              <span style="font-size:10px;font-weight:700;color:${barColor};">${badge}</span>
+            </div>
+            <div style="height:7px;background:var(--pr-bg);border-radius:99px;overflow:hidden;border:1px solid var(--pr-border);">
+              <div style="height:100%;width:${progressoPeso.toFixed(1)}%;background:${barColor};border-radius:99px;transition:width 0.6s ease;"></div>
+            </div>
+            <div style="font-size:10px;color:var(--pr-text-muted);margin-top:3px;text-align:right;">${peso.toFixed(1)} kg / ${metaPesoMin.toFixed(1)} kg — ${progressoPeso.toFixed(0)}%</div>
+          </div>`;
+      }
+      if (metaValor !== null) {
+        const barColor = atingiuValor ? '#27ae60' : '#e67e22';
+        const badge    = atingiuValor ? '✅ Meta atingida!' : `Faltam R$ ${(metaValor - valor).toLocaleString('pt-BR', {minimumFractionDigits:2})}`;
+        metasHtml += `
+          <div style="margin-bottom:4px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <span style="font-size:11px;font-weight:700;color:var(--pr-text-muted);">💵 Meta de Valor</span>
+              <span style="font-size:10px;font-weight:700;color:${barColor};">${badge}</span>
+            </div>
+            <div style="height:7px;background:var(--pr-bg);border-radius:99px;overflow:hidden;border:1px solid var(--pr-border);">
+              <div style="height:100%;width:${progressoValor.toFixed(1)}%;background:${barColor};border-radius:99px;transition:width 0.6s ease;"></div>
+            </div>
+            <div style="font-size:10px;color:var(--pr-text-muted);margin-top:3px;text-align:right;">R$ ${valor.toLocaleString('pt-BR',{minimumFractionDigits:2})} / R$ ${metaValor.toLocaleString('pt-BR',{minimumFractionDigits:2})} — ${progressoValor.toFixed(0)}%</div>
+          </div>`;
+      }
+
+      const comissaoFormatada = comissaoValor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const valorFormatado    = valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      const noRuleWarning = !activeRule
+        ? `<div style="background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.25);border-radius:10px;padding:10px;font-size:11px;color:#e74c3c;font-weight:600;margin-bottom:12px;">
+             ⚠️ Nenhuma faixa de comissão configurada para ${peso.toFixed(1)} kg. Contate seu administrador.
+           </div>` : '';
+
+      resultBox.innerHTML = `
+        ${noRuleWarning}
+        <!-- Destaque Principal: Valor de Comissão -->
+        <div style="background:linear-gradient(135deg,rgba(26,107,175,0.12),rgba(13,72,123,0.08));border:1.5px solid rgba(26,107,175,0.25);border-radius:14px;padding:18px;text-align:center;margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;color:var(--pr-blue-mid);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">💰 Comissão Calculada</div>
+          <div style="font-size:38px;font-weight:900;color:var(--pr-blue-dark);line-height:1;margin-bottom:4px;">R$ ${comissaoFormatada}</div>
+          <div style="font-size:11px;color:var(--pr-text-muted);margin-top:4px;">${pct}% sobre R$ ${valorFormatado}</div>
+        </div>
+
+        <!-- Detalhes da Faixa -->
+        <div style="background:var(--pr-bg);border:1px solid var(--pr-border);border-radius:12px;padding:12px;margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <div style="font-size:9px;font-weight:800;color:var(--pr-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Faixa Aplicada</div>
+            <div style="font-size:13px;font-weight:700;color:var(--pr-text);">${ruleName}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:800;color:var(--pr-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Intervalo de Peso</div>
+            <div style="font-size:13px;font-weight:700;color:var(--pr-text);">${ruleRange || '—'}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:800;color:var(--pr-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Peso Informado</div>
+            <div style="font-size:13px;font-weight:700;color:var(--pr-blue-mid);">${peso.toFixed(2)} kg</div>
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:800;color:var(--pr-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">% de Comissão</div>
+            <div style="font-size:13px;font-weight:700;color:#e67e22;">${pct}%</div>
+          </div>
+        </div>
+
+        <!-- Barras de Progresso das Metas -->
+        ${metasHtml ? `<div style="background:var(--pr-bg);border:1px solid var(--pr-border);border-radius:12px;padding:12px;">${metasHtml}</div>` : ''}
+      `;
+    }
+
+  } catch (e) {
+    console.error("[SimuladorComissão] Erro:", e);
+    showToast("Erro ao calcular comissão. Tente novamente.", "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Calcular Comissão";
+    }
+  }
+};
 
 // --- ADMIN: Regras de Comissão ---
 
@@ -977,97 +1205,119 @@ window.closeCommissionRulesModal = function() {
 };
 
 window.saveCommissionRule = async function() {
-  if (!checkRole('admin')) {
-    showToast("Acesso negado: Somente administradores.", "error");
-    return;
-  }
+  if (!checkRole('admin')) return;
   
-  const titleInput = document.getElementById('ruleTitle');
-  const startInput = document.getElementById('ruleStartDay');
-  const endInput = document.getElementById('ruleEndDay');
-  const minInput = document.getElementById('ruleMinWeight');
-  const maxInput = document.getElementById('ruleMaxWeight');
-  const valInput = document.getElementById('ruleValue');
+  const minI = document.getElementById('ruleMinWeight');
+  const maxI = document.getElementById('ruleMaxWeight');
+  const pctI = document.getElementById('rulePct'); // Unificando com rulePct da lógica
+  const titleI = document.getElementById('ruleTitle');
 
-  if (!titleInput || !startInput || !endInput || !minInput || !maxInput || !valInput) {
-    console.error("IDs de input não encontrados no DOM.");
-    return;
-  }
-
-  const title = titleInput.value.trim() || 'Regra Padrao';
-  const cycleStart = parseInt(startInput.value) || 1;
-  const cycleEnd = parseInt(endInput.value) || 31;
-  const min = parseFloat(minInput.value);
-  const max = parseFloat(maxInput.value);
-  const val = parseFloat(valInput.value);
+  const min = parseFloat(minI.value);
+  const max = parseFloat(maxI.value) || null;
+  const pct = parseFloat(pctI.value);
+  const title = titleI?.value || "Faixa de Peso";
   
-  if (isNaN(min) || isNaN(max) || isNaN(val)) {
-    showToast("Preencha todos os campos da faixa.", "warning");
-    return;
-  }
-
-  const cId = window.companyId || (currentUser ? currentUser.uid : null);
-  if (!cId) {
-    showToast("Empresa não identificada.", "error");
+  if (isNaN(min) || isNaN(pct)) {
+    showToast("Preencha o peso mínimo e a porcentagem.", "warning");
     return;
   }
 
   try {
-    await addDoc(collection(db, "commission_rules"), {
-      companyId: cId,
-      title: title,
-      cycleStart: cycleStart,
-      cycleEnd: cycleEnd,
-      min: min,
-      max: max,
-      value: val,
-      createdAt: serverTimestamp()
-    });
+    if (window._editingCommissionRuleId) {
+      await updateDoc(doc(db, "commission_rules", window._editingCommissionRuleId), {
+        min: min,
+        max: max,
+        pct: pct,
+        title: title,
+        updatedAt: serverTimestamp()
+      });
+      window._editingCommissionRuleId = null;
+      const btn = document.querySelector('.comm-save-btn');
+      if(btn) btn.innerHTML = '<i class="fas fa-plus"></i> Adicionar Regra';
+      showToast("Regra atualizada!", "success");
+    } else {
+      await addDoc(collection(db, "commission_rules"), {
+        companyId: window.companyId,
+        min: min,
+        max: max,
+        pct: pct,
+        title: title,
+        createdAt: serverTimestamp()
+      });
+      showToast("Regra salva!", "success");
+    }
     
-    minInput.value = '';
-    maxInput.value = '';
-    valInput.value = '';
-    
-    if (window.loadCommissionRules) window.loadCommissionRules();
+    minI.value = ''; maxI.value = ''; pctI.value = '';
+    if(titleI) titleI.value = '';
+
+    window.loadCommissionRules();
   } catch (e) {
-    console.error("Erro ao salvar regra:", e);
-    showToast("Erro ao salvar regra: " + e.message, "error");
+    console.error("[Commission] Erro ao salvar:", e);
+    showToast("Erro ao salvar regra.", "error");
   }
+};
+
+window.editCommissionRule = function(ruleId, min, max, pct, title) {
+  document.getElementById('ruleMinWeight').value = min;
+  document.getElementById('ruleMaxWeight').value = max || '';
+  document.getElementById('rulePct').value = pct;
+  const titleI = document.getElementById('ruleTitle');
+  if(titleI) titleI.value = title || '';
+  
+  window._editingCommissionRuleId = ruleId;
+  
+  const btn = document.querySelector('.comm-save-btn');
+  if(btn) btn.innerHTML = '<i class="fas fa-save"></i> Atualizar Regra';
+  
+  const modalContent = document.querySelector('#commissionRulesModal .modal-content');
+  if(modalContent) modalContent.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
 window.loadCommissionRules = async function() {
   const list = document.getElementById('commissionRulesList');
   if (!list) return;
-  
   try {
     const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
     const snapshot = await getDocs(q);
-    
     list.innerHTML = '';
-    if (snapshot.empty) {
-      list.innerHTML = '<p style="text-align:center; padding:20px; font-size:11px; color:var(--pr-text-muted);">Nenhuma regra definida ainda.</p>';
+    
+    let rules = [];
+    snapshot.forEach(d => rules.push({ id: d.id, ...d.data() }));
+    
+    // Ordenação consistente por peso mínimo
+    rules.sort((a, b) => (parseFloat(a.min) || 0) - (parseFloat(b.min) || 0));
+
+    if (rules.length === 0) {
+      list.innerHTML = `<div style="text-align:center; padding:20px; color:var(--pr-text-muted); font-size:12px;">Nenhuma regra configurada.</div>`;
       return;
     }
 
-    let rules = [];
-    snapshot.forEach(docSnap => rules.push({ id: docSnap.id, ...docSnap.data() }));
-    rules.sort((a, b) => (a.min || 0) - (b.min || 0));
-
     rules.forEach(r => {
-      const item = document.createElement('div');
-      item.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:var(--pr-surface); padding:10px 15px; border-radius:10px; border:1px solid var(--pr-border);";
-      item.innerHTML = `
-        <div style="font-size:12px;">
-          <div style="font-weight:800; color:var(--pr-text); margin-bottom: 2px;">${r.title || 'Regra'} <span style="font-size:9px; color:var(--pr-text-muted); font-weight:600;">(Ciclo: Dia ${r.cycleStart || 1} ao ${r.cycleEnd || 31})</span></div>
-          <span style="font-weight:700; color:var(--pr-blue-mid);">${r.min}kg - ${r.max}kg</span>
-          <span style="margin-left:10px; color:#27ae60; font-weight:800;">R$ ${Number(r.value).toFixed(2)}</span>
+      const card = document.createElement('div');
+      card.className = 'comm-rule-card';
+      
+      const rangeText = r.max ? `${r.min}kg até ${r.max}kg` : `A partir de ${r.min}kg`;
+      const title = r.title || "Faixa de Peso";
+
+      card.innerHTML = `
+        <div class="comm-rule-info">
+          <div class="comm-rule-range">${rangeText}</div>
+          <div class="comm-rule-meta">${title.toUpperCase()}</div>
         </div>
-        <button onclick="window.deleteCommissionRule('${r.id}')" style="background:none; border:none; color:#e74c3c; cursor:pointer; font-size:11px; font-weight:700; text-transform:uppercase;">Excluir</button>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="comm-rule-val">${r.pct}%</div>
+          <button onclick="window.editCommissionRule('${r.id}', ${r.min}, ${r.max ? `'${r.max}'` : 'null'}, ${r.pct}, '${escapeHTML(r.title || '')}')" style="background:var(--pr-bg); border:1px solid var(--pr-blue-pale); color:var(--pr-blue); border-radius:6px; padding:4px 8px; cursor:pointer; font-size:10px; font-weight:700; transition:all 0.2s;">
+            Editar
+          </button>
+          <button onclick="window.deleteCommissionRule('${r.id}')" style="background:var(--pr-bg); border:1px solid #ff7675; color:#d63031; border-radius:6px; padding:4px 8px; cursor:pointer; font-size:10px; font-weight:700; transition:all 0.2s;">
+            Excluir
+          </button>
+        </div>
       `;
-      list.appendChild(item);
+      list.appendChild(card);
     });
   } catch (e) {
-    console.error(e);
+    console.error("[Commission] Erro ao carregar:", e);
   }
 };
 
@@ -3759,7 +4009,7 @@ async function loadFleetDrivers() {
   list.innerHTML = '<p style="text-align:center; font-size:12px; color:var(--pr-text-muted);">Buscando motoristas...</p>';
 
   try {
-    const q = query(collection(db, "users"), where("adminId", "==", window.companyId));
+    const q = query(collection(db, "users"), where("companyId", "==", window.companyId));
     const snapshot = await getDocs(q);
     list.innerHTML = '';
 
@@ -3774,11 +4024,25 @@ async function loadFleetDrivers() {
       return;
     }
 
+    let count = 0;
     snapshot.forEach((docSnap) => {
       const u = docSnap.data();
+      // Não listar o próprio admin se for o owner principal
+      if (u.role === 'admin' && docSnap.id === window.companyId) return;
+      count++;
+
       const uid = docSnap.id;
       const displayName = u.nome || 'Sem nome';
       const initial = displayName.charAt(0).toUpperCase();
+
+      const isActive = u.adminId === window.companyId;
+      const statusHtml = isActive 
+        ? `<span style="font-size: 9px; background: #27ae60; color: #fff; padding: 3px 10px; border-radius: 10px; font-weight: bold;">Ativo</span>`
+        : `<span style="font-size: 9px; background: #95a5a6; color: #fff; padding: 3px 10px; border-radius: 10px; font-weight: bold;">Desativado</span>`;
+
+      const unlinkBtnHtml = isActive
+        ? `<button onclick="event.stopPropagation(); window.unlinkDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#e67e22; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Desvincular</button>`
+        : `<button onclick="event.stopPropagation(); window.relinkDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#27ae60; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Vincular</button>`;
 
       const card = document.createElement('div');
       card.style.cssText = "background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px;";
@@ -3793,7 +4057,7 @@ async function loadFleetDrivers() {
             <div style="font-size: 10px; color: var(--pr-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(u.email || '')}</div>
           </div>
           <div style="flex-shrink: 0;">
-            <span style="font-size: 9px; background: #27ae60; color: #fff; padding: 3px 10px; border-radius: 10px; font-weight: bold;">Ativo</span>
+            ${statusHtml}
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
@@ -3804,14 +4068,57 @@ async function loadFleetDrivers() {
           <button onclick="event.stopPropagation(); window.saveDriverName('${uid}', this)" 
             style="border:none; background:#1A6BAF; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Salvar</button>
         </div>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+          ${unlinkBtnHtml}
+          <button onclick="event.stopPropagation(); window.deleteDriver('${uid}', '${escapeHTML(displayName)}')" 
+            style="border:none; background:#c0392b; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap; margin-left:auto;">Excluir</button>
+        </div>
       `;
       
       list.appendChild(card);
     });
+
+    if (count === 0) {
+      list.innerHTML = `
+        <div style="padding: 20px; text-align: center;">
+          <div style="font-size: 30px; margin-bottom: 8px; opacity: 0.5;">👥</div>
+          <div class="text-dark-auto" style="font-size: 12px; font-weight: 600;">Nenhum motorista vinculado</div>
+          <div style="font-size: 10px; color: var(--pr-text-muted); margin-top: 4px;">Use o formulário acima para convidar.</div>
+        </div>
+      `;
+    }
   } catch(e) {
     list.innerHTML = `<p style="text-align:center; color:red; font-size:12px;">Erro ao carregar: ${e.message}</p>`;
   }
 }
+
+window.unlinkDriver = async function(driverUid, name) {
+  if (!checkRole('admin')) return;
+  const confirm = await window.showConfirm(`Deseja desvincular o motorista "${name}" da sua frota?\nEle ficará desativado no seu painel.`, "Desvincular Motorista", "Desvincular");
+  if (!confirm) return;
+  
+  try {
+    await updateDoc(doc(db, "users", driverUid), { adminId: null });
+    showToast("Motorista desvinculado com sucesso.", "success");
+    loadFleetDrivers();
+  } catch(e) {
+    showToast("Erro ao desvincular: " + e.message, "error");
+  }
+};
+
+window.relinkDriver = async function(driverUid, name) {
+  if (!checkRole('admin')) return;
+  const confirm = await window.showConfirm(`Deseja vincular o motorista "${name}" novamente à sua frota?`, "Vincular Motorista", "Vincular");
+  if (!confirm) return;
+  
+  try {
+    await updateDoc(doc(db, "users", driverUid), { adminId: window.companyId });
+    showToast("Motorista vinculado com sucesso.", "success");
+    loadFleetDrivers();
+  } catch(e) {
+    showToast("Erro ao vincular: " + e.message, "error");
+  }
+};
 
 window.saveDriverName = async function(driverUid, btn) {
   const input = document.getElementById('name_' + driverUid);
@@ -5349,80 +5656,3 @@ const _spyRoleCheckInterval = setInterval(() => {
   };
 
 })();
-
-// ══════════════════════════════════════════════════════════
-// REGRAS DE COMISSÃO — Modal e Calculadora (Sênior UI)
-// ══════════════════════════════════════════════════════════
-
-(function() {
-
-  /**
-   * Abre o modal de Regras de Comissão e carrega dados dinâmicos.
-   */
-  window.openCommissionRulesModal = async function() {
-    const modal = document.getElementById('commissionRulesModal');
-    if (!modal) return;
-    
-    modal.classList.add('active');
-
-    // Tentar carregar faturamento atual (meta) para exibir no dashboard do modal
-    try {
-      // ACTIVE_GOAL_DOC 'active' é o padrão usado no bloco anterior
-      const goalPath = `${window.companyId}_active`;
-      const snap = await getDoc(doc(db, 'monthly_goals', goalPath));
-      
-      if (snap.exists()) {
-        const data = snap.data();
-        const currentRev = data.usedValue || 0;
-        
-        const goalDisplay = document.getElementById('commGoalValue');
-        if (goalDisplay) {
-          goalDisplay.textContent = currentRev.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-        }
-        
-        // Auto-preencher calculadora com faturamento atual para facilitar simulação
-        const calcValInput = document.getElementById('calcValue');
-        if (calcValInput && !calcValInput.value) {
-          calcValInput.value = currentRev.toFixed(2);
-          window.runCommissionCalc();
-        }
-      }
-    } catch (err) {
-      console.warn('[Commission] Erro ao buscar meta para o modal:', err.message);
-    }
-  };
-
-  /**
-   * Fecha o modal de Regras de Comissão.
-   */
-  window.closeCommissionRulesModal = function() {
-    const modal = document.getElementById('commissionRulesModal');
-    if (modal) modal.classList.remove('active');
-  };
-
-  /**
-   * Lógica da Calculadora de Simulação (Funcional)
-   */
-  window.runCommissionCalc = function() {
-    const valInput = document.getElementById('calcValue');
-    const percInput = document.getElementById('calcPercent');
-    const resultEl = document.getElementById('calcResult');
-
-    if (!valInput || !percInput || !resultEl) return;
-
-    const val = parseFloat(valInput.value) || 0;
-    const perc = parseFloat(percInput.value) || 0;
-    const commission = (val * perc) / 100;
-
-    resultEl.textContent = commission.toLocaleString('pt-BR', { 
-      style: 'currency', 
-      currency: 'BRL' 
-    });
-
-    // Feedback visual sutil no resultado
-    resultEl.style.transform = 'scale(1.05)';
-    setTimeout(() => { resultEl.style.transform = 'scale(1)'; }, 100);
-  };
-
-})();
-

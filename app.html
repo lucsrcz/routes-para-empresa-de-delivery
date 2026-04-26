@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Routes — Prodesivo</title>
-<link rel="stylesheet" href="app.css?v=5"/>
+<link rel="stylesheet" href="app.css?v=6"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -220,6 +220,16 @@
           <span class="acard-arr" style="color:#fff;">›</span>
         </div>
 
+        <!-- Simulador de Comissão — Motorista -->
+        <div class="acard" style="background: linear-gradient(135deg, #f39c12, #e67e22); color: #fff;" onclick="window.openCommissionSimulator()">
+          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">💰</div>
+          <div class="acard-body">
+            <div class="acard-title" style="color:#fff;">Simulador de Comissão</div>
+            <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Calcule sua comissão por peso entregue</div>
+          </div>
+          <span class="acard-arr" style="color:#fff;">›</span>
+        </div>
+
         <!-- Adicionar Local Pessoal -->
         <div class="acard c4" onclick="openLocModal()">
           <div class="acard-icon" style="color:var(--pr-blue-dark); background: var(--pr-blue-pale);">＋</div>
@@ -357,7 +367,7 @@
 
     <!-- ═══ MODAL DE AGENDAMENTO DE ROTA ═══ -->
     <div class="modal-overlay" id="scheduleRouteModal" onclick="window.fpCloseScheduleModal()">
-      <div class="modal-content" style="max-height:85vh; width:95%; max-width:500px; display:flex; flex-direction:column; padding:20px;" onclick="event.stopPropagation()">
+      <div class="modal-content" style="height:100%; width:100%; max-width:none; max-height:none; display:flex; flex-direction:column; padding:20px; border-radius:0; box-sizing:border-box; overflow:hidden;" onclick="event.stopPropagation()">
         <div class="modal-title" style="margin-bottom:4px;">📅 Agendar Rota</div>
         <div class="modal-desc" style="margin-bottom:14px;">Programe uma rota para <strong id="schedDriverName">motorista</strong></div>
 
@@ -707,7 +717,7 @@
 
 <!-- ═══ DRIVER ROUTES MODAL (Minhas Rotas) ═══ -->
 <div class="modal-overlay" id="driverRoutesModal" onclick="window.closeDriverRoutesModal()">
-  <div class="modal-content" style="max-height: 85vh; width: 95%; max-width: 550px; display: flex; flex-direction: column; padding: 20px;" onclick="event.stopPropagation()">
+  <div class="modal-content" style="height: 100%; width: 100%; max-width: none; max-height: none; display: flex; flex-direction: column; padding: 20px; border-radius: 0; box-sizing: border-box; overflow: hidden;" onclick="event.stopPropagation()">
     <div class="modal-title" style="margin-bottom: 5px;">📋 Minhas Rotas</div>
     <div class="modal-desc" style="margin-bottom: 15px;">Rotas do dia enviadas pelo seu administrador</div>
     
@@ -1008,40 +1018,32 @@
     <div class="modal-title" style="margin-bottom: 5px;">Regras de Comissão</div>
     <div class="modal-desc" style="margin-bottom: 15px;">Defina valores por faixa de peso para os motoristas.</div>
     
-    <div style="background:var(--pr-bg); border-radius:12px; padding:15px; margin-bottom:15px; border:1px solid var(--pr-border);">
-      <div style="font-size:12px; font-weight:700; margin-bottom:10px;">Adicionar Nova Regra</div>
+    <div style="background:var(--pr-surface); border-radius:12px; padding:16px; margin-bottom:15px; border:1px solid var(--pr-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+      <div style="font-size:11px; font-weight:800; margin-bottom:12px; color:var(--pr-blue-mid); text-transform:uppercase; letter-spacing:0.5px;">Adicionar Nova Faixa</div>
       
-      <div class="fp-field" style="margin-bottom: 8px;">
-        <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">TÍTULO DA REGRA</label>
-        <input type="text" id="ruleTitle" class="modal-input" style="height:36px; font-size:12px;" placeholder="Ex: Regra Padrão" />
+      <div class="fp-field" style="margin-bottom: 12px;">
+        <label style="font-size:9px; color:var(--pr-text-muted); font-weight:800; text-transform:uppercase;">Identificação da Regra (Ex: Veículo Leve)</label>
+        <input type="text" id="ruleTitle" class="modal-input" style="height:38px; font-size:12px; background:var(--pr-bg);" placeholder="Nome da faixa..." />
       </div>
 
-      <div style="display:flex; gap:8px; margin-bottom: 8px;">
-        <div style="flex:1;">
-          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">DIA INÍCIO CICLO</label>
-          <input type="number" id="ruleStartDay" class="modal-input" style="height:36px; font-size:11px;" placeholder="1" min="1" max="31" />
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; align-items:end; margin-bottom: 12px;">
+        <div>
+          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:800; text-transform:uppercase;">Peso Mín (kg)</label>
+          <input type="number" id="ruleMinWeight" class="modal-input" style="margin-bottom:0; height:38px; font-size:12px; background:var(--pr-bg);" placeholder="0" />
         </div>
-        <div style="flex:1;">
-          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">DIA FIM CICLO</label>
-          <input type="number" id="ruleEndDay" class="modal-input" style="height:36px; font-size:11px;" placeholder="31" min="1" max="31" />
+        <div>
+          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:800; text-transform:uppercase;">Peso Máx (kg)</label>
+          <input type="number" id="ruleMaxWeight" class="modal-input" style="margin-bottom:0; height:38px; font-size:12px; background:var(--pr-bg);" placeholder="9999" />
+        </div>
+        <div>
+          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:800; text-transform:uppercase;">Comissão (%)</label>
+          <input type="number" id="rulePct" class="modal-input" style="margin-bottom:0; height:38px; font-size:12px; background:var(--pr-bg);" placeholder="0" />
         </div>
       </div>
-
-      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:8px; align-items:end;">
-        <div>
-          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">PESO MIN (kg)</label>
-          <input type="number" id="ruleMinWeight" class="modal-input" style="margin-bottom:0; height:36px; font-size:11px;" placeholder="0" />
-        </div>
-        <div>
-          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">PESO MAX (kg)</label>
-          <input type="number" id="ruleMaxWeight" class="modal-input" style="margin-bottom:0; height:36px; font-size:11px;" placeholder="999" />
-        </div>
-        <div>
-          <label style="font-size:9px; color:var(--pr-text-muted); font-weight:700;">VALOR (R$)</label>
-          <input type="number" id="ruleValue" class="modal-input" style="margin-bottom:0; height:36px; font-size:11px;" placeholder="0.00" />
-        </div>
-        <button class="mbtn mbtn-save" style="background:#27ae60; padding:0 12px; height:36px; font-size: 11px;" onclick="window.saveCommissionRule()">OK</button>
-      </div>
+      
+      <button class="mbtn mbtn-save" style="width:100%; background:var(--pr-blue-mid); height:40px; font-size: 13px; font-weight:700; border-radius:10px;" onclick="window.saveCommissionRule()">
+        <i class="fas fa-plus-circle" style="margin-right:6px;"></i> Salvar Faixa
+      </button>
     </div>
 
     <div style="flex:1; overflow-y:auto;">
@@ -1052,11 +1054,99 @@
       </div>
     </div>
 
-    <div class="modal-actions" style="margin-top:15px;">
-      <button class="mbtn mbtn-cancel" style="width:100%;" onclick="window.closeCommissionRulesModal()">Fechar</button>
+    <div class="modal-actions" style="margin-top:15px; display:flex; gap:10px;">
+      <button class="mbtn mbtn-cancel" style="flex:1;" onclick="window.closeCommissionRulesModal()">Fechar</button>
+      <button class="mbtn mbtn-save" style="flex:1; background: linear-gradient(135deg, #f39c12, #e67e22); border-color: transparent; color:#fff;" onclick="window.closeCommissionRulesModal(); window.openCommissionSimulator()">
+        🧮 Simular
+      </button>
     </div>
   </div>
 </div>
+
+<!-- ═══ SIMULADOR DE COMISSÃO MODAL ═══ -->
+<div class="modal-overlay" id="commissionSimulatorModal" onclick="window.closeCommissionSimulator()">
+  <div class="modal-content" style="max-height: 92vh; width: 95%; max-width: 500px; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 20px;" onclick="event.stopPropagation()">
+
+    <!-- Header com gradiente premium -->
+    <div style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); padding: 20px; display: flex; align-items: center; gap: 14px; flex-shrink: 0;">
+      <div style="width: 44px; height: 44px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;">
+        💰
+      </div>
+      <div style="flex: 1;">
+        <div style="font-size: 16px; font-weight: 800; color: #fff;">Simulador de Comissão</div>
+        <div style="font-size: 11px; color: rgba(255,255,255,0.8); margin-top: 2px;">Calcule em segundos o que você vai receber</div>
+      </div>
+      <button onclick="window.closeCommissionSimulator()" style="background: rgba(255,255,255,0.2); border: none; color: #fff; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">✕</button>
+    </div>
+
+    <!-- Body scrollável -->
+    <div style="flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 14px; background: var(--pr-surface);">
+
+      <!-- ENTREGA REALIZADA -->
+      <div style="background: var(--pr-bg); border: 1px solid var(--pr-border); border-radius: 14px; padding: 16px;">
+        <div style="font-size: 11px; font-weight: 800; color: var(--pr-blue-mid); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">📦 Dados da Entrega</div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <label style="display: block; font-size: 10px; font-weight: 700; color: var(--pr-text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px;">⚖ Peso (kg) *</label>
+            <input type="number" id="simPeso" class="modal-input" min="0" step="0.1" placeholder="Ex: 850" oninput="window.resetCommissionSimulator()"
+              style="height: 44px; font-size: 16px; font-weight: 700; text-align: center; margin-bottom: 0; border-radius: 10px; border: 1.5px solid var(--pr-border);" />
+          </div>
+          <div>
+            <label style="display: block; font-size: 10px; font-weight: 700; color: var(--pr-text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px;">💵 Valor (R$) *</label>
+            <input type="number" id="simValor" class="modal-input" min="0" step="0.01" placeholder="Ex: 12500.00" oninput="window.resetCommissionSimulator()"
+              style="height: 44px; font-size: 16px; font-weight: 700; text-align: center; margin-bottom: 0; border-radius: 10px; border: 1.5px solid var(--pr-border);" />
+          </div>
+        </div>
+      </div>
+
+      <!-- METAS (OPCIONAL) -->
+      <details style="background: var(--pr-bg); border: 1px solid var(--pr-border); border-radius: 14px; padding: 14px; cursor: pointer;">
+        <summary style="font-size: 11px; font-weight: 800; color: var(--pr-text-muted); text-transform: uppercase; letter-spacing: 0.5px; list-style: none; display: flex; align-items: center; justify-content: space-between;">
+          <span>🎯 Comparar com Metas (opcional)</span>
+          <span style="font-size: 14px; color: var(--pr-text-muted);">＋</span>
+        </summary>
+        <div style="margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <label style="display: block; font-size: 10px; font-weight: 700; color: var(--pr-text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px;">Meta Peso (kg)</label>
+            <input type="number" id="simMetaPeso" class="modal-input" min="0" step="0.1" placeholder="Ex: 1000"
+              style="height: 40px; font-size: 14px; font-weight: 600; text-align: center; margin-bottom: 0; border-radius: 10px;" />
+          </div>
+          <div>
+            <label style="display: block; font-size: 10px; font-weight: 700; color: var(--pr-text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px;">Meta Valor (R$)</label>
+            <input type="number" id="simMetaValor" class="modal-input" min="0" step="0.01" placeholder="Ex: 20000"
+              style="height: 40px; font-size: 14px; font-weight: 600; text-align: center; margin-bottom: 0; border-radius: 10px;" />
+          </div>
+        </div>
+        <div style="font-size: 10px; color: var(--pr-text-muted); margin-top: 8px; background: var(--pr-surface); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--pr-border);">
+          💡 Preencha para ver barras de progresso das metas abaixo do resultado.
+        </div>
+      </details>
+
+      <!-- Botão Calcular -->
+      <button id="simBtn" onclick="window.runCommissionSimulator()"
+        style="width: 100%; height: 52px; border-radius: 14px; border: none; background: linear-gradient(135deg, #f39c12, #e67e22); color: #fff; font-size: 15px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 20px rgba(243,156,18,0.35); transition: all 0.2s; font-family: inherit;"
+        onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 10px 28px rgba(243,156,18,0.45)'"
+        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 20px rgba(243,156,18,0.35)'">
+        Calcular Comissão
+      </button>
+
+      <!-- Resultado (injetado pelo JS) -->
+      <div id="simResult" style="display: none; animation: slideUp 0.3s ease;"></div>
+
+      <!-- Dica informativa -->
+      <div style="background: rgba(26,107,175,0.06); border: 1px solid rgba(26,107,175,0.15); border-radius: 12px; padding: 12px; font-size: 11px; color: var(--pr-text-muted); line-height: 1.6;">
+        <strong style="color: var(--pr-blue-mid);">Como funciona:</strong> O sistema verifica em qual faixa de peso configurada pelo administrador você se encaixa e aplica a porcentagem de comissão sobre o valor transportado em R$.
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding: 14px 18px; border-top: 1px solid var(--pr-border); background: var(--pr-surface); flex-shrink: 0;">
+      <button class="mbtn mbtn-cancel" onclick="window.closeCommissionSimulator()" style="width: 100%; height: 44px; font-size: 13px; font-weight: 700;">Fechar</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- ═══ DRIVER STATS MODAL ═══ -->
 <div class="modal-overlay" id="driverStatsModal" onclick="window.closeDriverStatsModal()">
@@ -1449,103 +1539,6 @@
   </div>
 </div>
 
-
-<!-- Modal: Regras de Comissão (Premium) -->
-<div id="commissionRulesModal" class="modal-overlay">
-  <div class="modal-card modal-content" style="max-width: 480px; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3); border: 1px solid var(--pr-border);">
-    
-    <!-- Header -->
-    <div style="display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--pr-border);background:linear-gradient(135deg,rgba(243,156,18,0.12),rgba(230,126,34,0.18));flex-shrink:0;">
-      <div style="width:42px;height:42px;border-radius:12px;background:rgba(243,156,18,0.18);border:1px solid rgba(243,156,18,0.35);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e67e22" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-      </div>
-      <div style="flex:1;">
-        <div style="font-size:15px;font-weight:800;color:var(--pr-text);">Regras de Comissão</div>
-        <div style="font-size:11px;color:var(--pr-text-muted);margin-top:2px;">Defina o período e a porcentagem sobre a meta</div>
-      </div>
-      <button onclick="window.closeCommissionRulesModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--pr-text-muted);padding:4px;line-height:1;">✕</button>
-    </div>
-
-    <div style="padding:16px 20px;overflow-y:auto;max-height: 70vh;flex:1;display:flex;flex-direction:column;gap:18px;background: var(--pr-surface);">
-      
-      <!-- Commission Period -->
-      <div>
-        <div style="font-size:12px;font-weight:700;color:var(--pr-text);margin-bottom:10px;display:flex;align-items:center;gap:6px;">
-          <span>📅 Período da Comissão</span>
-        </div>
-        <div style="display:flex;gap:12px;">
-          <div style="flex:1;">
-            <label style="font-size:10px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:6px;text-transform:uppercase;">Início</label>
-            <input type="date" id="commStart" class="modal-input" style="height:42px;font-size:13px;font-weight:700;text-align:center;border-radius:12px;" />
-          </div>
-          <div style="flex:1;">
-            <label style="font-size:10px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:6px;text-transform:uppercase;">Fim</label>
-            <input type="date" id="commEnd" class="modal-input" style="height:42px;font-size:13px;font-weight:700;text-align:center;border-radius:12px;" />
-          </div>
-        </div>
-      </div>
-
-      <!-- Logic Section -->
-      <div style="background: var(--pr-bg); border-radius: 16px; padding: 16px; border: 1px solid var(--pr-border);">
-        <div style="margin-bottom:15px;">
-          <label style="font-size:11px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:6px;text-transform:uppercase;">Data do Pagamento da Comissão</label>
-          <input type="date" id="commPayDate" class="modal-input" style="height:42px;font-size:13px;font-weight:700;border-radius:10px;" />
-        </div>
-
-        <div style="display:flex; gap:12px; align-items: flex-end;">
-          <div style="flex:1;">
-            <label style="font-size:11px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:6px;text-transform:uppercase;">Porcentagem (%)</label>
-            <div style="position:relative;">
-              <input type="number" id="commPercent" class="modal-input" placeholder="0.00" step="0.01" style="height:46px;font-size:16px;font-weight:800;padding-right:35px;border-radius:12px;text-align:center;" />
-              <span style="position:absolute; right:15px; top:50%; transform:translateY(-50%); font-weight:800; color:var(--pr-text-muted);">%</span>
-            </div>
-          </div>
-          <div style="flex:1.2;">
-            <label style="font-size:11px;font-weight:700;color:var(--pr-text-muted);display:block;margin-bottom:6px;text-transform:uppercase;">Meta Atual (R$)</label>
-            <div id="commGoalValue" style="height:46px; background:rgba(26,107,175,0.05); border:1px dashed rgba(26,107,175,0.3); border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:800; color:var(--pr-blue-mid);">
-              R$ 0,00
-            </div>
-          </div>
-        </div>
-        <p style="font-size:10px; color:var(--pr-text-muted); margin-top:10px; line-height:1.4;">
-          * A meta atual é calculada automaticamente com base nos valores enviados pelos motoristas no período selecionado.
-        </p>
-      </div>
-
-      <!-- Calculator Card -->
-      <div style="background: linear-gradient(135deg, #2d3436 0%, #000000 100%); border-radius: 20px; padding: 20px; color: #fff; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-          <div style="font-size:13px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color: #fab1a0;">🧮 Calculadora de Simulação</div>
-          <div style="width:30px; height:30px; background:rgba(255,255,255,0.1); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px;">⚡</div>
-        </div>
-        
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:15px;">
-          <div>
-            <label style="font-size:9px; font-weight:700; color:rgba(255,255,255,0.5); display:block; margin-bottom:5px; text-transform:uppercase;">Valor Simulado (R$)</label>
-            <input type="number" id="calcValue" placeholder="Ex: 5000" style="width:100%; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:10px; height:40px; color:#fff; padding:0 12px; font-weight:700; outline:none;" oninput="window.runCommissionCalc()" />
-          </div>
-          <div>
-            <label style="font-size:9px; font-weight:700; color:rgba(255,255,255,0.5); display:block; margin-bottom:5px; text-transform:uppercase;">Porcentagem (%)</label>
-            <input type="number" id="calcPercent" placeholder="%" style="width:100%; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:10px; height:40px; color:#fff; padding:0 12px; font-weight:700; outline:none;" oninput="window.runCommissionCalc()" />
-          </div>
-        </div>
-
-        <div style="background:rgba(255,255,255,0.05); border-radius:12px; padding:15px; text-align:center; border: 1px solid rgba(255,255,255,0.1);">
-          <div style="font-size:10px; color:rgba(255,255,255,0.6); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.5px;">Comissão Estimada</div>
-          <div id="calcResult" style="font-size:24px; font-weight:900; color:#00b894;">R$ 0,00</div>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Footer -->
-    <div style="padding:14px 20px;border-top:1px solid var(--pr-border);display:flex;gap:10px;flex-shrink:0;background:var(--pr-surface);">
-      <button class="mbtn mbtn-cancel" onclick="window.closeCommissionRulesModal()" style="flex:1;padding:12px;font-size:13px;font-weight:700;">Fechar</button>
-      <button class="mbtn mbtn-save" style="flex:1.5;font-size:13px;font-weight:800;background:linear-gradient(135deg, #f39c12, #e67e22);border:none;color:#fff;box-shadow:0 4px 15px rgba(230,126,34,0.3);">Salvar Configuração</button>
-    </div>
-  </div>
-</div>
-
 <!-- Modal: Perfil do Usuário -->
 <div id="profileModal" class="modal-overlay">
   <div class="modal-card modal-content" style="max-width: 340px; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3); border: 1px solid var(--pr-border);">
@@ -1588,6 +1581,6 @@
 
 <!-- Scripts -->
 
-<script type="module" src="app.js?v=21"></script>
+<script type="module" src="app.js?v=22"></script>
 </body>
 </html>
