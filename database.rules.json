@@ -1,12 +1,36 @@
 {
   "rules": {
     "locations": {
-      "$adminId": {
-        ".read": "auth != null && auth.uid === $adminId",
-        ".write": "auth != null && auth.uid === $adminId",
+      "$companyId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.uid === $companyId || root.child('managers').child($companyId).child(auth.uid).val() === true)",
         "$driverId": {
-          ".write": "auth != null && auth.uid === $driverId"
+          ".write": "auth != null && (auth.uid === $driverId || auth.uid === $companyId || root.child('managers').child($companyId).child(auth.uid).val() === true)"
         }
+      }
+    },
+    "tracking": {
+      "$companyId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.uid === $companyId || root.child('managers').child($companyId).child(auth.uid).val() === true)"
+      }
+    },
+    "drivers": {
+      "$companyId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.uid === $companyId || root.child('managers').child($companyId).child(auth.uid).val() === true)"
+      }
+    },
+    "active_routes": {
+      "$companyId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.uid === $companyId || root.child('managers').child($companyId).child(auth.uid).val() === true)"
+      }
+    },
+    "managers": {
+      "$companyId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.uid === $companyId || root.child('managers').child($companyId).child(auth.uid).val() === true)"
       }
     }
   }

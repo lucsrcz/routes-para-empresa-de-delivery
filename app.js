@@ -1629,6 +1629,15 @@ onAuthStateChanged(auth, async (user) => {
       if (loader) loader.style.display = 'none';
     }
 
+    // ── Sincronização de Permissões no RTDB para Co-Admins ──
+    if (window.userRole === 'admin' || window.userRole === 'co-admin') {
+      try {
+        await rtdbSet(rtdbRef(rtdb, `managers/${window.companyId}/${currentUser.uid}`), true);
+      } catch (e) {
+        console.warn("[Auth] Erro ao sincronizar managers RTDB:", e.message);
+      }
+    }
+
     // Load locations for admin or driver
     loadLocations();
 
@@ -4179,6 +4188,51 @@ async function loadFleetDrivers() {
   }
 }
 
+/**
+ * Utilitário Sênior: Limpeza profunda de dados do usuário.
+ * Remove rastreamento em tempo real (RTDB) e histórico de atividades (Firestore).
+ * Garante que se o usuário for re-vinculado, ele comece sem "fantasmas" do passado.
+ */
+window.scrubUserData = async function(driverUid) {
+  console.log(`[Scrub] Iniciando limpeza profunda para: ${driverUid}`);
+  const companyId = window.companyId;
+  if (!companyId) {
+    console.warn("[Scrub] Cancelado: companyId não disponível.");
+    return;
+  }
+
+  // 1. RTDB: Remover rastreamento, localização e estado ativo
+  const rtdbPaths = [
+    `locations/${companyId}/${driverUid}`,
+    `tracking/${companyId}/${driverUid}`,
+    `drivers/${companyId}/${driverUid}`,
+    `active_routes/${companyId}/${driverUid}`
+  ];
+
+  for (const path of rtdbPaths) {
+    try {
+      await rtdbRemove(rtdbRef(rtdb, path));
+    } catch (e) {
+      console.warn(`[Scrub] Erro ao remover path RTDB ${path}:`, e.message);
+    }
+  }
+
+  // 2. Firestore: Remover subcoleção 'history'
+  // Nota: Deletar o documento pai NÃO deleta subcoleções automaticamente no Firestore.
+  try {
+    const historyRef = collection(db, "users", driverUid, "history");
+    const historySnap = await getDocs(historyRef);
+    if (!historySnap.empty) {
+      const batch = writeBatch(db);
+      historySnap.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+      console.log(`[Scrub] ${historySnap.size} registros de histórico Firestore removidos.`);
+    }
+  } catch (e) {
+    console.warn(`[Scrub] Erro ao remover histórico Firestore:`, e.message);
+  }
+};
+
 window.unlinkDriver = async function(driverUid, name) {
   if (!checkRole('admin')) return;
   const confirm = await window.showConfirm(`Deseja desvincular o usuário "${name}" da sua frota?\nEle perderá acesso imediato ao ambiente e precisará de um novo convite para retornar.`, "Desvincular Usuário", "Desvincular");
@@ -4204,23 +4258,12 @@ window.unlinkDriver = async function(driverUid, name) {
   }
 };
 
-window.promoteToCoAdmin = async function(driverUid, name) {
-  if (window.userRole !== 'admin') return;
-  const confirm = await window.showConfirm(`Deseja promover "${name}" a Co-Admin?\nEle terá permissões administrativas limitadas.`, "Promover Usuário", "Promover");
-  if (!confirm) return;
-  
-  try {
-    await updateDoc(doc(db, "users", driverUid), { role: 'co-admin' });
-    showToast(`${name} agora é Co-Admin.`, "success");
-    loadFleetDrivers();
-  } catch(e) {
-    showToast("Erro ao promover: " + e.message, "error");
+window.demoteToDriver = async function(driverUid, name) {
+  if (window.userRole !== 'admin') {
+    showToast("Apenas o proprietário (Admin) pode alterar cargos gerenciais.", "error");
+    return;
   }
-};
-
-window.demoteFromCoAdmin = async function(driverUid, name) {
-  if (window.userRole !== 'admin') return;
-  const confirm = await window.showConfirm(`Deseja remover o cargo de Co-Admin de "${name}"?`, "Remover Cargo", "Confirmar");
+  const confirm = await window.showConfirm(`Deseja remover o cargo de Co-Administrador de "${name}"?\nEle voltará a ter apenas permissões de motorista.`, "Rebaixar Usuário", "Confirmar");
   if (!confirm) return;
   
   try {
@@ -4231,7 +4274,6 @@ window.demoteFromCoAdmin = async function(driverUid, name) {
     showToast("Erro ao rebaixar: " + e.message, "error");
   }
 };
-
 
 window.promoteToCoAdmin = async function(driverUid, name) {
   if (!checkRole('admin')) return;
@@ -4249,25 +4291,6 @@ window.promoteToCoAdmin = async function(driverUid, name) {
     loadFleetDrivers();
   } catch(e) {
     showToast("Erro ao promover: " + e.message, "error");
-  }
-};
-
-window.demoteToDriver = async function(driverUid, name) {
-  if (!checkRole('admin')) return;
-  if (window.userRole !== 'admin') {
-    showToast("Apenas o proprietário (Admin) pode alterar cargos administrativos.", "error");
-    return;
-  }
-  
-  const confirm = await window.showConfirm(`Deseja rebaixar "${name}" a Motorista?\nEle perderá as permissões administrativas.`, "Rebaixar para Motorista", "⬇️ Rebaixar");
-  if (!confirm) return;
-  
-  try {
-    await updateDoc(doc(db, "users", driverUid), { role: 'driver' });
-    showToast(`${name} agora é um Motorista.`, "success");
-    loadFleetDrivers();
-  } catch(e) {
-    showToast("Erro ao rebaixar: " + e.message, "error");
   }
 };
 

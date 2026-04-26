@@ -16,13 +16,16 @@ service cloud.firestore {
     }
 
     // companyId do usuário logado
-    // FALLBACK: admin sem campo companyId usa o próprio UID como empresa
+    // Lógica Sênior: Identifica a empresa (UID do dono) independente do papel
     function myCompany() {
       let d = me();
-      let stored = d.get('companyId', null);
-      // Se tem companyId salvo, usa. Senão, admin = própria empresa, driver = sem empresa
-      return stored != null ? stored
-           : (d.get('role', '') == 'admin' ? request.auth.uid : null);
+      let role = d.get('role', '');
+      let storedCompany = d.get('companyId', null);
+      
+      if (storedCompany != null) return storedCompany;
+      if (role == 'admin') return request.auth.uid;
+      if (role == 'co-admin') return d.get('adminId', null);
+      return null;
     }
 
     // Verifica se o usuário logado tem papel administrativo (Admin ou Co-Admin)
@@ -33,7 +36,7 @@ service cloud.firestore {
 
     // Verifica se o usuário logado é admin desta empresa específica
     function isAdminOf(companyId) {
-      return isAdmin() && myCompany() == companyId;
+      return isAdmin() && myCompany() != null && myCompany() == companyId;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -45,7 +48,7 @@ service cloud.firestore {
       allow read: if isAuth() && (
         request.auth.uid == userId ||
         isAdminOf(resource.data.get('companyId', null)) ||
-        (isAdmin() && resource.data.get('adminId', null) == myCompany())
+        isAdminOf(resource.data.get('adminId', null))
       );
 
       // Cria: apenas o próprio documento com campos iniciais seguros
@@ -65,15 +68,13 @@ service cloud.firestore {
         )) ||
         // Admin tem controle total sobre motoristas da sua empresa
         isAdminOf(resource.data.get('companyId', null)) ||
-        (isAdmin() && resource.data.get('adminId', null) == myCompany())
+        isAdminOf(resource.data.get('adminId', null))
       );
 
       allow delete: if isAuth() && (
         isAdminOf(resource.data.get('companyId', null)) ||
-        (isAdmin() && (
-          resource.data.get('adminId', null) == myCompany() ||
-          resource.data.get('adminId', null) == request.auth.uid
-        ))
+        isAdminOf(resource.data.get('adminId', null)) ||
+        (isAdmin() && resource.data.get('adminId', null) == request.auth.uid)
       );
 
       // ── Sub-coleções ────────────────────────────────────────
