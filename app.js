@@ -5349,3 +5349,80 @@ const _spyRoleCheckInterval = setInterval(() => {
   };
 
 })();
+
+// ══════════════════════════════════════════════════════════
+// REGRAS DE COMISSÃO — Modal e Calculadora (Sênior UI)
+// ══════════════════════════════════════════════════════════
+
+(function() {
+
+  /**
+   * Abre o modal de Regras de Comissão e carrega dados dinâmicos.
+   */
+  window.openCommissionRulesModal = async function() {
+    const modal = document.getElementById('commissionRulesModal');
+    if (!modal) return;
+    
+    modal.classList.add('active');
+
+    // Tentar carregar faturamento atual (meta) para exibir no dashboard do modal
+    try {
+      // ACTIVE_GOAL_DOC 'active' é o padrão usado no bloco anterior
+      const goalPath = `${window.companyId}_active`;
+      const snap = await getDoc(doc(db, 'monthly_goals', goalPath));
+      
+      if (snap.exists()) {
+        const data = snap.data();
+        const currentRev = data.usedValue || 0;
+        
+        const goalDisplay = document.getElementById('commGoalValue');
+        if (goalDisplay) {
+          goalDisplay.textContent = currentRev.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+        
+        // Auto-preencher calculadora com faturamento atual para facilitar simulação
+        const calcValInput = document.getElementById('calcValue');
+        if (calcValInput && !calcValInput.value) {
+          calcValInput.value = currentRev.toFixed(2);
+          window.runCommissionCalc();
+        }
+      }
+    } catch (err) {
+      console.warn('[Commission] Erro ao buscar meta para o modal:', err.message);
+    }
+  };
+
+  /**
+   * Fecha o modal de Regras de Comissão.
+   */
+  window.closeCommissionRulesModal = function() {
+    const modal = document.getElementById('commissionRulesModal');
+    if (modal) modal.classList.remove('active');
+  };
+
+  /**
+   * Lógica da Calculadora de Simulação (Funcional)
+   */
+  window.runCommissionCalc = function() {
+    const valInput = document.getElementById('calcValue');
+    const percInput = document.getElementById('calcPercent');
+    const resultEl = document.getElementById('calcResult');
+
+    if (!valInput || !percInput || !resultEl) return;
+
+    const val = parseFloat(valInput.value) || 0;
+    const perc = parseFloat(percInput.value) || 0;
+    const commission = (val * perc) / 100;
+
+    resultEl.textContent = commission.toLocaleString('pt-BR', { 
+      style: 'currency', 
+      currency: 'BRL' 
+    });
+
+    // Feedback visual sutil no resultado
+    resultEl.style.transform = 'scale(1.05)';
+    setTimeout(() => { resultEl.style.transform = 'scale(1)'; }, 100);
+  };
+
+})();
+
