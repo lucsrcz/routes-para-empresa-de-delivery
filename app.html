@@ -843,6 +843,15 @@
         <span id="qr-detected-txt" style="font-size:11px; font-family:'Inter',monospace; color:#27ae60;"></span>
       </div>
 
+      <!-- Nome da localização (opcional) -->
+      <div>
+        <p style="font-size:11px; font-weight:600; color:var(--pr-text-muted); letter-spacing:0.05em; text-transform:uppercase; margin-bottom:4px;">📍 Nome da Localização (opcional)</p>
+        <div style="position:relative;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--pr-text-muted)" stroke-width="2" stroke-linecap="round" style="position:absolute; left:11px; top:50%; transform:translateY(-50%); opacity:0.5;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <input type="text" class="modal-input" id="qr-location-name" placeholder="Ex: Depósito Central, Loja 12..." style="padding-left:34px; font-size:12px;" />
+        </div>
+      </div>
+
       <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.qrGenerate()" style="width:100%; background:#6c5ce7; display:flex; align-items:center; justify-content:center; gap:8px; padding:11px; font-size:13px; font-weight:700;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3m0 4h4m-4 0v-4m0 0h4"/></svg>
         Gerar QR Code
@@ -853,21 +862,27 @@
 
     <!-- Result Section -->
     <div id="qr-result-section" style="display:none; flex-direction:column; align-items:center; gap:12px; padding:16px 18px; border-top:1px solid var(--pr-border); background:var(--pr-bg);">
-      <div style="width:172px; height:172px; border-radius:12px; border:1px solid var(--pr-border); background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+      <!-- Nome da localização (se preenchido) -->
+      <div id="qr-result-name" style="display:none; font-size:13px; font-weight:700; color:var(--pr-text); text-align:center;"></div>
+      <div style="width:180px; height:180px; border-radius:12px; border:1px solid var(--pr-border); background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden;">
         <div id="qr-output"></div>
       </div>
       <p style="font-size:10px; font-weight:600; color:var(--pr-text-muted); letter-spacing:0.06em; text-transform:uppercase;">URL gerada</p>
       <p id="qr-result-url" style="font-size:10.5px; font-family:'Inter',monospace; color:var(--pr-blue-mid); word-break:break-all; text-align:center; max-width:320px;"></p>
       <div style="display:flex; gap:8px; width:100%;">
+        <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.qrShareImage()" style="flex:1; background:#25D366; display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; font-weight:600;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          Compartilhar
+        </button>
         <button class="mbtn mbtn-cancel" id="qr-copy-btn" onclick="event.stopPropagation(); window.qrCopyLink()" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; font-weight:600;">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           Copiar link
         </button>
-        <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.qrDownload()" style="flex:1; background:#6c5ce7; display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; font-weight:600;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Baixar PNG
-        </button>
       </div>
+      <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); window.qrDownload()" style="width:100%; display:flex; align-items:center; justify-content:center; gap:6px; font-size:11px; font-weight:600; padding:8px;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Baixar PNG
+      </button>
     </div>
 
     <div style="padding:0 18px 16px;">

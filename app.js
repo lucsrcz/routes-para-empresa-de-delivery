@@ -4762,9 +4762,11 @@ updateCardDate();
     document.getElementById('qrCodeModal').classList.add('active');
     // Reset state
     document.getElementById('qr-link-input').value = '';
+    document.getElementById('qr-location-name').value = '';
     document.getElementById('qr-detected').style.display = 'none';
     document.getElementById('qr-error-msg').style.display = 'none';
     document.getElementById('qr-result-section').style.display = 'none';
+    document.getElementById('qr-result-name').style.display = 'none';
     document.getElementById('qr-output').innerHTML = '';
     qrCurrentURL = '';
     qrSrc = 'wa';
@@ -4835,12 +4837,22 @@ updateCardDate();
     el.innerHTML = '';
     new QRCode(el, {
       text: url,
-      width: 152,
-      height: 152,
-      colorDark: '#6c5ce7',
+      width: 160,
+      height: 160,
+      colorDark: '#000000',
       colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.M
     });
+
+    // Exibir nome da localização (se preenchido)
+    const locName = (document.getElementById('qr-location-name').value || '').trim();
+    const nameEl = document.getElementById('qr-result-name');
+    if (locName) {
+      nameEl.textContent = '📍 ' + locName;
+      nameEl.style.display = 'block';
+    } else {
+      nameEl.style.display = 'none';
+    }
 
     document.getElementById('qr-result-url').textContent = url.length > 52 ? url.slice(0, 49) + '...' : url;
     document.getElementById('qr-result-section').style.display = 'flex';
@@ -4865,10 +4877,59 @@ updateCardDate();
   window.qrDownload = function() {
     const c = document.querySelector('#qr-output canvas');
     if (!c) return;
+    const locName = (document.getElementById('qr-location-name').value || '').trim();
+    const fileName = locName ? 'qr-' + locName.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30) + '.png' : 'qrcode-localizacao.png';
     const a = document.createElement('a');
-    a.download = 'qrcode-localizacao.png';
+    a.download = fileName;
     a.href = c.toDataURL('image/png');
     a.click();
+  };
+
+  // Compartilhar QR Code como imagem + link via Web Share API
+  window.qrShareImage = async function() {
+    const canvas = document.querySelector('#qr-output canvas');
+    if (!canvas || !qrCurrentURL) return;
+
+    const locName = (document.getElementById('qr-location-name').value || '').trim();
+    const title = locName ? `📍 ${locName}` : '📍 Localização via QR Code';
+    const text = locName
+      ? `📍 ${locName}\n📎 ${qrCurrentURL}`
+      : `📎 Localização: ${qrCurrentURL}`;
+
+    // Tentar compartilhar com imagem (Web Share API Level 2)
+    if (navigator.share && navigator.canShare) {
+      try {
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        const fileName = locName ? 'qr-' + locName.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30) + '.png' : 'qrcode-localizacao.png';
+        const file = new File([blob], fileName, { type: 'image/png' });
+        const shareData = { title, text, files: [file] };
+        if (navigator.canShare(shareData)) {
+          await navigator.share(shareData);
+          return;
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') return; // User cancelled
+        console.warn('Share with image failed, falling back:', e);
+      }
+    }
+
+    // Fallback: compartilhar apenas texto/link
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text, url: qrCurrentURL });
+        return;
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+      }
+    }
+
+    // Último fallback: copiar para clipboard
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('Link copiado para a área de transferência!');
+    } catch(e) {
+      alert('Não foi possível compartilhar. Copie manualmente: ' + qrCurrentURL);
+    }
   };
 })();
 
