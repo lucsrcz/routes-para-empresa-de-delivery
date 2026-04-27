@@ -410,7 +410,6 @@ const ADMIN_LEVEL_UI = {
     'bottomNavDriver': 'none',
     'adminDriverArea': 'flex',
     'dailyRouteCard': 'block',
-    'adminFleetCard': 'none',
     'adminCardMessage': 'block',
     'cardMotivacional': 'block'
   },
@@ -481,22 +480,46 @@ async function applyRoleUI() {
   } else if (role === 'driver') {
     initDriverEnvironment();
   }
+
+  // 5. Global Branding (Nav and Profile)
+  try {
+    const profileAdminBadge = document.getElementById('profileAdminBadge');
+    if (profileAdminBadge) {
+      profileAdminBadge.style.display = 'inline-block';
+      if (role === 'admin') {
+        profileAdminBadge.textContent = 'ADMINISTRADOR';
+        profileAdminBadge.style.background = 'rgba(255,255,255,0.15)';
+      } else if (role === 'co-admin') {
+        profileAdminBadge.textContent = 'CO-ADMIN';
+        profileAdminBadge.style.background = 'rgba(255,255,255,0.15)';
+      } else {
+        profileAdminBadge.textContent = 'MOTORISTA';
+        profileAdminBadge.style.background = 'rgba(0,0,0,0.2)';
+      }
+    }
+
+    if (window.companyId) {
+      const snap = await getDoc(doc(db, 'companies', window.companyId));
+      if (snap.exists()) {
+        const nome = snap.data().name || snap.data().nome || 'Prodesivo';
+        const navCompanyName = document.getElementById('navCompanyName');
+        const profileCompanyName = document.getElementById('profileCompanyName');
+        if (navCompanyName) navCompanyName.textContent = nome;
+        if (profileCompanyName) profileCompanyName.textContent = nome;
+      }
+    }
+  } catch(e) { /* fallback silencioso */ }
 }
 
 /**
  * Initializes Admin-only features and data.
  */
 async function initAdminEnvironment() {
-  // Show and populate motivational card
   aplicarMensagemDaSemana('cardMotivacional');
+  if (driverMissionsUnsubscribe) { driverMissionsUnsubscribe(); driverMissionsUnsubscribe = null; }
 
-  // Cancel any active driver listeners
-  if (driverMissionsUnsubscribe) {
-    driverMissionsUnsubscribe();
-    driverMissionsUnsubscribe = null;
-  }
+  // Branding global movido para applyRoleUI
 
-  // Refresh Fleet/Driver selection list
   await refreshBuilderDriverList();
 }
 
@@ -676,7 +699,7 @@ function loadDriverMissions() {
         </div>
         <div style="display: flex; gap: 6px;">
           ${mapsUrl ? `<a href="${mapsUrl}" target="_blank" onclick="window.startMission('${missionId}')" style="flex: 1; display: block; background: var(--pr-blue-dark); color: #fff; text-decoration: none; text-align: center; padding: 8px; border-radius: 8px; font-size: 11px; font-weight: 600; transition: opacity 0.15s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Abrir Maps</a>` : ''}
-          ${status !== "Concluída" ? `<button onclick="event.stopPropagation(); window.finishMission('${missionId}')" style="flex-shrink: 0; background: #27ae60; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; transition: opacity 0.15s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Concluir Entrega</button>` : ''}
+          ${status !== "Concluída" ? `<button onclick="event.stopPropagation(); window.finishMission('${missionId}')" style="flex-shrink: 0; background:linear-gradient(135deg,#0F3E6F,#1D5E9E); color: #fff; border: none; padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; transition: opacity 0.15s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Concluir Entrega</button>` : ''}
         </div>
       `;
       
@@ -706,7 +729,7 @@ function loadDriverMissions() {
             </div>
             <div style="display: flex; gap: 6px;">
               ${d.mapsUrl ? `<a href="${d.mapsUrl}" target="_blank" onclick="window.startMission('${mid}')" style="flex:1; display:block; background:var(--pr-blue-dark); color:#fff; text-decoration:none; text-align:center; padding:7px; border-radius:7px; font-size:10px; font-weight:600;">Abrir Maps</a>` : ''}
-              ${pendingOrActiveRoute.status !== "Concluída" ? `<button onclick="event.stopPropagation(); window.finishMission('${mid}')" style="flex:1; background:#27ae60; color:#fff; border:none; padding:7px; border-radius:7px; font-size:10px; font-weight:600; cursor:pointer; font-family:inherit;">Concluir Entrega</button>` : ''}
+              ${pendingOrActiveRoute.status !== "Concluída" ? `<button onclick="event.stopPropagation(); window.finishMission('${mid}')" style="flex:1; background:linear-gradient(135deg,#0F3E6F,#1D5E9E); color:#fff; border:none; padding:7px; border-radius:7px; font-size:10px; font-weight:600; cursor:pointer; font-family:inherit;">Concluir Entrega</button>` : ''}
             </div>
           </div>
         `;
@@ -2249,7 +2272,7 @@ window.updateGenerateBtn = function() {
     const selectedItem = document.querySelector('.bdr-item.selected');
     const driverName = selectedItem ? selectedItem.dataset.name : 'Motorista';
     genBtn.textContent = `Enviar para ${driverName}`;
-    genBtn.style.background = '#27ae60';
+    genBtn.style.background = 'linear-gradient(135deg,#1D5E9E,#29A8D9)';
   } else {
     genBtn.textContent = 'Salvar Rota';
     genBtn.style.background = '#1A6BAF';
@@ -3391,12 +3414,12 @@ window.fpSaveScheduledRoute = async function() {
     });
 
     btn.textContent = '✅ Agendada!';
-    btn.style.background = '#27ae60';
+    btn.style.background = 'linear-gradient(135deg,#0F3E6F,#1D5E9E)';
     setTimeout(() => {
       btn.textContent = '📅 Agendar Rota';
       btn.style.pointerEvents = 'auto';
       btn.style.opacity = '1';
-      btn.style.background = '#27ae60';
+      btn.style.background = 'linear-gradient(135deg,#0F3E6F,#1D5E9E)';
       window.fpCloseScheduleModal();
     }, 1200);
 
@@ -3951,7 +3974,7 @@ window.fpSaveEditSchedule = async function() {
     });
 
     btn.textContent = '✅ Salvo!';
-    btn.style.background = '#27ae60';
+    btn.style.background = 'linear-gradient(135deg,#0F3E6F,#1D5E9E)';
     setTimeout(() => {
       btn.textContent = '💾 Salvar Alterações';
       btn.style.pointerEvents = 'auto';
@@ -4121,7 +4144,7 @@ async function loadFleetDrivers() {
 
       const unlinkBtnHtml = isActive
         ? `<button onclick="event.stopPropagation(); window.unlinkDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#e67e22; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Desvincular</button>`
-        : `<button onclick="event.stopPropagation(); window.relinkDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#27ae60; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Vincular</button>`;
+        : `<button onclick="event.stopPropagation(); window.relinkDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:linear-gradient(135deg,#0F3E6F,#1D5E9E); color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Vincular</button>`;
 
       const isMe = uid === currentUser.uid;
       const canManage = !isMe && (window.userRole === 'admin' || (window.userRole === 'co-admin' && u.role === 'driver'));
@@ -4324,7 +4347,7 @@ window.saveDriverName = async function(driverUid, btn) {
     if (avatarEl) avatarEl.textContent = novoNome.charAt(0).toUpperCase();
 
     btn.textContent = '✅';
-    btn.style.background = '#27ae60';
+    btn.style.background = 'linear-gradient(135deg,#0F3E6F,#1D5E9E)';
     setTimeout(() => {
       btn.textContent = 'Salvar';
       btn.style.background = '#1A6BAF';
@@ -4884,8 +4907,8 @@ updateCardDate();
 
     function showSuccess() {
       b.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#27ae60" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg> Copiado!';
-      b.style.color = '#27ae60';
-      b.style.borderColor = '#27ae60';
+      b.style.color = 'var(--pr-cyan)';
+      b.style.borderColor = 'var(--pr-cyan)';
       setTimeout(() => {
         b.innerHTML = original;
         b.style.color = '';

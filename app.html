@@ -58,12 +58,17 @@
   <nav class="nav">
     <div class="nav-brand">
       <div class="nav-logo">
-        <img src="novo_logo_app.png" style="width: 100%; height: 100%; border-radius: 8px; object-fit: contain;">
+        <img src="novo_logo_app.png" style="width:100%;height:100%;border-radius:8px;object-fit:contain;">
       </div>
-      <span class="nav-title" style="color:#fff;font-weight:700;margin-left:8px;">ROUTES</span>
+      <div class="nav-brand-col">
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span class="nav-title">ROUTES</span>
+        </div>
+        <span class="nav-subtitle" id="navCompanyName">Prodesivo</span>
+      </div>
     </div>
     <div class="nav-right">
-      <div class="temp-card" title="Luziânia, GO">
+      <div class="temp-card" title="Localização">
         <span class="temp-icon">☀</span>
         <div class="temp-col">
           <span class="temp-val">24°C</span>
@@ -71,9 +76,7 @@
         </div>
       </div>
       <button class="mode-btn" onclick="toggleAppTheme()">☀ / ☾</button>
-      <div class="nav-av" id="navAvatar" onclick="window.openProfileModal()" title="Perfil do Usuário" style="cursor: pointer;">
-        --
-      </div>
+      <div class="nav-av" id="navAvatar" onclick="window.openProfileModal()" title="Perfil" style="cursor:pointer;">--</div>
     </div>
   </nav>
 
@@ -81,10 +84,12 @@
     <!-- ═══════════ ADMIN PANEL ═══════════ -->
     <aside class="sidebar" id="adminPanel">
 
+
+
       <div class="cards-section">
-        <!-- Dashboard do Admin -->
-        <div class="acard" id="adminHubBtn" style="display:none; background: linear-gradient(135deg, #1A6BAF, #0D487B); color: #fff;" onclick="window.openAdminHub()">
-          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">📡</div>
+        <!-- Painel da Frota — Admin Only -->
+        <div class="acard" id="adminHubBtn" style="display:none; background:linear-gradient(135deg,#0F3E6F,#1D5E9E); color:#fff;" onclick="window.openAdminHub()">
+          <div class="acard-icon" style="color:#fff;background:rgba(255,255,255,0.16);">📡</div>
           <div class="acard-body">
             <div class="acard-title" style="color:#fff;">Painel da Frota</div>
             <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Acompanhe o status e as rotas dos motoristas</div>
@@ -92,9 +97,9 @@
           <span class="acard-arr" style="color:#fff;">›</span>
         </div>
 
-        <!-- Minha Frota (Convidar Motorista) — Admin Only -->
-        <div class="acard" id="fleetManageBtn" style="display:none; background: linear-gradient(135deg, #27ae60, #1e8449); color: #fff;" onclick="window.openFleetModal()">
-          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">👥</div>
+        <!-- Minha Frota — Admin Only -->
+        <div class="acard" id="fleetManageBtn" style="display:none; background:linear-gradient(135deg,#1A79C4,#29A8D9); color:#fff;" onclick="window.openFleetModal()">
+          <div class="acard-icon" style="color:#fff;background:rgba(255,255,255,0.16);">👥</div>
           <div class="acard-body">
             <div class="acard-title" style="color:#fff;">Minha Frota</div>
             <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Convide e gerencie seus motoristas</div>
@@ -136,7 +141,7 @@
           </div>
           <span class="acard-arr">›</span>
         </div>
-        <div class="acard" style="background: linear-gradient(135deg, #6c5ce7, #4834d4); color: #fff;" onclick="window.openQrModal()">
+        <div class="acard" style="background:linear-gradient(135deg,#1D5E9E,#29A8D9); color:#fff;" onclick="window.openQrModal()">
           <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">📱</div>
           <div class="acard-body">
             <div class="acard-title" style="color:#fff;">QR Code Localização</div>
@@ -145,8 +150,8 @@
           <span class="acard-arr" style="color:#fff;">›</span>
         </div>
         <!-- Visualizar Motoristas ao Vivo — Admin Only -->
-        <div class="acard" id="liveSpyBtn" style="display:none; background: linear-gradient(135deg, #c0392b, #922b21); color: #fff;" onclick="window.openLiveSpy()">
-          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">🛠️</div>
+        <div class="acard" id="liveSpyBtn" style="display:none; background:linear-gradient(135deg,#c0392b,#922b21); color:#fff;" onclick="window.openLiveSpy()">
+          <div class="acard-icon" style="color:#fff;background:rgba(255,255,255,0.16);">🔴</div>
           <div class="acard-body">
             <div class="acard-title" style="color:#fff;">Visualizar Motoristas</div>
             <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Acompanhe a localização em tempo real</div>
@@ -155,8 +160,8 @@
         </div>
 
         <!-- Regras de Comissão — Admin Only -->
-        <div class="acard" id="commissionRulesBtn" style="display:none; background: linear-gradient(135deg, #f39c12, #e67e22); color: #fff;" onclick="window.openCommissionRulesModal()">
-          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">💰</div>
+        <div class="acard" id="commissionRulesBtn" style="display:none; background:linear-gradient(135deg,#0F3E6F,#29A8D9); color:#fff;" onclick="window.openCommissionRulesModal()">
+          <div class="acard-icon" style="color:#fff;background:rgba(255,255,255,0.16);">💰</div>
           <div class="acard-body">
             <div class="acard-title" style="color:#fff;">Regras de Comissão</div>
             <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Defina valores por peso de entrega</div>
@@ -165,8 +170,8 @@
         </div>
 
         <!-- Meta Mensal — Admin Only -->
-        <div class="acard" id="monthlyGoalsBtn" style="display:none; background: linear-gradient(135deg, #1A6BAF, #0D3B66); color: #fff;" onclick="window.openGoalsDashboard()">
-          <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">🎯</div>
+        <div class="acard" id="monthlyGoalsBtn" style="display:none; background:linear-gradient(135deg,#1D5E9E,#0F3E6F); color:#fff;" onclick="window.openGoalsDashboard()">
+          <div class="acard-icon" style="color:#fff;background:rgba(255,255,255,0.16);">🎯</div>
           <div class="acard-body">
             <div class="acard-title" style="color:#fff;">Análise de Metas</div>
             <div class="acard-desc" style="color:rgba(255,255,255,0.8);">Desempenho, peso e faturamento</div>
@@ -406,7 +411,7 @@
 
         <div class="modal-actions" style="margin-top:10px; flex-shrink:0;">
           <button class="mbtn mbtn-cancel" onclick="event.stopPropagation(); window.fpCloseScheduleModal()">Cancelar</button>
-          <button class="mbtn mbtn-save" id="schedSaveBtn" onclick="event.stopPropagation(); window.fpSaveScheduledRoute()" style="flex:1; background:#27ae60;">📅 Agendar Rota</button>
+          <button class="mbtn mbtn-save" id="schedSaveBtn" onclick="event.stopPropagation(); window.fpSaveScheduledRoute()" style="flex:1; background:linear-gradient(135deg,#1D5E9E,#1A79C4);">📅 Agendar Rota</button>
         </div>
       </div>
     </div>
@@ -582,7 +587,7 @@
 
     <div class="modal-actions" style="margin-top:auto; display:flex; gap: 10px;">
       <button class="mbtn mbtn-cancel" style="flex:1;" onclick="event.stopPropagation(); closeDriverDailyRouteModal()">Cancelar</button>
-      <button class="mbtn mbtn-save" style="flex:1; background: #27ae60;" onclick="event.stopPropagation(); startDriverDailyRoute()">▶ Iniciar Rota (Ir)</button>
+      <button class="mbtn mbtn-save" style="flex:1; background:linear-gradient(135deg,#0F3E6F,#1A79C4);" onclick="event.stopPropagation(); startDriverDailyRoute()">▶ Iniciar Rota (Ir)</button>
     </div>
   </div>
 </div>
@@ -599,7 +604,7 @@
       <div style="background: linear-gradient(135deg, rgba(39,174,96,0.08), rgba(30,132,73,0.12)); border: 1px solid rgba(39,174,96,0.2); border-radius: 12px; padding: 15px; margin-bottom: 15px; flex-shrink:0;">
         <div class="text-dark-auto" style="font-size: 13px; font-weight: 700; margin-bottom: 5px;">🚚 Convite para Motoristas</div>
         <div style="font-size: 11px; color: var(--pr-text-muted); margin-bottom: 10px;">Gere um link para o motorista se vincular à sua rota.</div>
-        <button class="mbtn mbtn-save" id="sendInviteBtn" onclick="event.stopPropagation(); window.sendDriverInvite()" style="width: 100%; font-size: 12px; font-weight:700; background: #27ae60;">🔗 Gerar Ficha Motorista</button>
+        <button class="mbtn mbtn-save" id="sendInviteBtn" onclick="event.stopPropagation(); window.sendDriverInvite()" style="width:100%; font-size:12px; font-weight:700; background:linear-gradient(135deg,#1D5E9E,#29A8D9);">🔗 Gerar Ficha Motorista</button>
         
         <!-- Generated invite link -->
         <div id="inviteLinkResult" style="display: none; margin-top: 10px; background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 8px; padding: 10px;">
@@ -793,7 +798,7 @@
         <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 5px; color: #27ae60;">🚚 Sou Motorista</label>
         <div style="font-size: 10px; color: var(--pr-text-muted); margin-bottom: 10px;">Cole o link de convite enviado pelo Administrador.</div>
         <input type="text" id="rpDriverInput" class="modal-input" placeholder="Cole o link de convite aqui..." style="margin-bottom: 10px;"/>
-        <button class="mbtn mbtn-save" style="width: 100%; background: #27ae60;" onclick="window.submitRoleSelection('driver')">Confirmar Motorista</button>
+        <button class="mbtn mbtn-save" style="width:100%; background:linear-gradient(135deg,#0F3E6F,#1D5E9E);" onclick="window.submitRoleSelection('driver')">Confirmar Motorista</button>
       </div>
 
     </div>
@@ -852,7 +857,7 @@
         </div>
       </div>
 
-      <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.qrGenerate()" style="width:100%; background:#6c5ce7; display:flex; align-items:center; justify-content:center; gap:8px; padding:11px; font-size:13px; font-weight:700;">
+      <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.qrGenerate()" style="width:100%; background:linear-gradient(135deg,#1D5E9E,#29A8D9); display:flex; align-items:center; justify-content:center; gap:8px; padding:11px; font-size:13px; font-weight:700;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3m0 4h4m-4 0v-4m0 0h4"/></svg>
         Gerar QR Code
       </button>
@@ -1049,7 +1054,7 @@
 
     <div class="modal-actions" style="margin-top:20px; display:flex; gap:12px;">
       <button class="mbtn mbtn-cancel" style="flex:1; height: 50px; border-radius: 14px; font-weight: 700;" onclick="window.closeDeliveryModal()">Cancelar</button>
-      <button class="mbtn mbtn-save" id="btnConfirmDelivery" style="flex:2; height: 50px; background:#27ae60; border-radius: 14px; font-weight: 800; font-size: 15px; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);" onclick="window.confirmDelivery()">Finalizar Entrega</button>
+      <button class="mbtn mbtn-save" id="btnConfirmDelivery" style="flex:2; height:50px; background:linear-gradient(135deg,#0F3E6F,#1D5E9E); border-radius:14px; font-weight:800; font-size:15px; box-shadow:0 4px 15px rgba(15,62,111,0.35);" onclick="window.confirmDelivery()">Finalizar Entrega</button>
     </div>
   </div>
 </div>
@@ -1497,7 +1502,7 @@
           <span id="mgWeightLabel">0 / 0 kg</span>
         </div>
         <div style="background:var(--pr-bg);border-radius:999px;height:8px;overflow:hidden;">
-          <div id="mgWeightBar" style="height:100%;background:linear-gradient(90deg,#1A6BAF,#27ae60);border-radius:999px;width:0%;transition:width .5s ease;"></div>
+          <div id="mgWeightBar" style="height:100%;background:linear-gradient(90deg,#0F3E6F,#29A8D9);border-radius:999px;width:0%;transition:width .5s ease;"></div>
         </div>
       </div>
       <!-- Value bar -->
@@ -1583,7 +1588,12 @@
   <div class="modal-card modal-content" style="max-width: 340px; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3); border: 1px solid var(--pr-border);">
     <!-- Header com Degradê Premium -->
     <div style="background: linear-gradient(135deg, var(--pr-blue-dark) 0%, var(--pr-blue-mid) 100%); padding: 25px 20px; text-align: center; position: relative; border-bottom: 1px solid rgba(255,255,255,0.1);">
-      <div id="profileInitialsCircle" style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); border: 2px solid #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 24px; font-weight: 800; margin: 0 auto 12px; backdrop-filter: blur(5px);">--</div>
+      <div id="profileInitialsCircle" style="display:none; width: 60px; height: 60px; background: rgba(255,255,255,0.2); border: 2px solid #fff; border-radius: 50%; align-items: center; justify-content: center; color: #fff; font-size: 24px; font-weight: 800; margin: 0 auto 12px; backdrop-filter: blur(5px);">--</div>
+      <div id="profileLogoWrap" style="width: 60px; height: 60px; border-radius: 12px; margin: 0 auto 12px; overflow: hidden; border: 2px solid rgba(255,255,255,0.2); background: #fff;">
+        <img src="novo_logo_app.png" style="width:100%; height:100%; object-fit:contain;" onerror="this.style.display='none'">
+      </div>
+      <div id="profileCompanyName" style="color: #fff; font-size: 16px; font-weight: 800; margin-bottom: 4px;">Prodesivo</div>
+      <div style="display:inline-block; font-size:9px; font-weight:700; background:rgba(255,255,255,0.15); padding:3px 8px; border-radius:10px; color:#fff; margin-bottom: 10px;" id="profileAdminBadge">ADMINISTRADOR</div>
       <div id="profileEmailDisplay" style="color: rgba(255,255,255,0.8); font-size: 11px; font-weight: 500;">email@exemplo.com</div>
       <button onclick="window.closeProfileModal()" style="position: absolute; top: 15px; right: 15px; background: rgba(255,255,255,0.1); border: none; color: #fff; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px;">✕</button>
     </div>
@@ -1595,7 +1605,7 @@
       </div>
       
       <div style="display: flex; flex-direction: column; gap: 10px;">
-        <button class="mbtn mbtn-save" onclick="window.updateProfileData()" style="width: 100%; height: 44px; border-radius: 12px; font-weight: 700; font-size: 14px; background: rgba(39, 174, 96, 0.1); border: 1.5px solid rgba(39, 174, 96, 0.2); color: #27ae60; cursor: pointer; transition: all 0.2s;">Salvar Alterações</button>
+        <button class="mbtn mbtn-save" onclick="window.updateProfileData()" style="width:100%; height:44px; border-radius:12px; font-weight:700; font-size:14px; background:linear-gradient(135deg,#0F3E6F,#1D5E9E); color:#fff; cursor:pointer; transition:all 0.2s; box-shadow:0 4px 14px rgba(15,62,111,0.3);">Salvar Alterações</button>
         <button onclick="handleLogout()" style="width: 100%; height: 44px; border-radius: 12px; font-weight: 700; font-size: 13px; background: rgba(231, 76, 60, 0.1); border: 1.5px solid rgba(231, 76, 60, 0.2); color: #e74c3c; cursor: pointer; transition: all 0.2s;">Sair da Conta</button>
       </div>
     </div>
