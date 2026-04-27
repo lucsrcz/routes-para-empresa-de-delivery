@@ -4860,9 +4860,10 @@ updateCardDate();
 
   window.qrCopyLink = function() {
     if (!qrCurrentURL) return;
-    navigator.clipboard.writeText(qrCurrentURL).then(() => {
-      const b = document.getElementById('qr-copy-btn');
-      const original = b.innerHTML;
+    const b = document.getElementById('qr-copy-btn');
+    const original = b.innerHTML;
+
+    function showSuccess() {
       b.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#27ae60" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg> Copiado!';
       b.style.color = '#27ae60';
       b.style.borderColor = '#27ae60';
@@ -4871,7 +4872,40 @@ updateCardDate();
         b.style.color = '';
         b.style.borderColor = '';
       }, 1800);
-    });
+    }
+
+    function showError() {
+      b.innerHTML = '❌ Erro';
+      b.style.color = '#e74c3c';
+      setTimeout(() => {
+        b.innerHTML = original;
+        b.style.color = '';
+      }, 1800);
+    }
+
+    // Fallback: textarea + execCommand (funciona em todos os contextos)
+    function fallbackCopy(text) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) { showSuccess(); } else { showError(); }
+      } catch(e) {
+        showError();
+      }
+    }
+
+    // Tentar clipboard API primeiro, fallback se falhar
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(qrCurrentURL).then(showSuccess).catch(() => fallbackCopy(qrCurrentURL));
+    } else {
+      fallbackCopy(qrCurrentURL);
+    }
   };
 
   window.qrDownload = function() {
@@ -4923,12 +4957,19 @@ updateCardDate();
       }
     }
 
-    // Último fallback: copiar para clipboard
+    // Último fallback: copiar para clipboard com execCommand
     try {
-      await navigator.clipboard.writeText(text);
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
       alert('Link copiado para a área de transferência!');
     } catch(e) {
-      alert('Não foi possível compartilhar. Copie manualmente: ' + qrCurrentURL);
+      prompt('Copie o link abaixo:', qrCurrentURL);
     }
   };
 })();
