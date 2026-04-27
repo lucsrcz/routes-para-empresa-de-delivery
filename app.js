@@ -2882,8 +2882,11 @@ async function renderFleetDriverCards() {
     grid.innerHTML = '';
 
     let driverCount = 0;
+    const myUid = currentUser ? currentUser.uid : null;
     for (const docSnap of snapshot.docs) {
       const u = docSnap.data();
+      // Excluir o próprio admin/co-admin e não-motoristas
+      if (myUid && docSnap.id === myUid) continue;
       if (u.role !== 'driver') continue;
       driverCount++;
 
@@ -4456,9 +4459,12 @@ async function loadAdminHubData() {
     window._adminHubUnsubscribe = onSnapshot(usersQ, (snapshot) => {
       clearTimeout(syncTimeout);
       
-      // Build drivers cache
+      // Build drivers cache — exclude the current logged-in user (admin/co-admin)
+      const myUid = currentUser ? currentUser.uid : null;
       const drivers = [];
       snapshot.forEach(docSnap => {
+        // Não exibir o próprio admin/co-admin na lista de frota
+        if (myUid && docSnap.id === myUid) return;
         const u = docSnap.data();
         drivers.push({ uid: docSnap.id, ...u });
       });
