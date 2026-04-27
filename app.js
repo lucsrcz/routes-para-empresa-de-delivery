@@ -4088,17 +4088,6 @@ async function loadFleetDrivers() {
     const snapshot = await getDocs(q);
     list.innerHTML = '';
 
-    if (snapshot.empty) {
-      list.innerHTML = `
-        <div style="padding: 20px; text-align: center;">
-          <div style="font-size: 30px; margin-bottom: 8px; opacity: 0.5;">👥</div>
-          <div class="text-dark-auto" style="font-size: 12px; font-weight: 600;">Nenhum motorista vinculado</div>
-          <div style="font-size: 10px; color: var(--pr-text-muted); margin-top: 4px;">Use o formulário acima para convidar.</div>
-        </div>
-      `;
-      return;
-    }
-
     let count = 0;
     snapshot.forEach((docSnap) => {
       const u = docSnap.data();
@@ -4258,6 +4247,25 @@ window.unlinkDriver = async function(driverUid, name) {
   }
 };
 
+window.relinkDriver = async function(driverUid, name) {
+  if (!checkRole('admin')) return;
+  const confirm = await window.showConfirm(`Deseja re-vincular "${name}" à sua frota?\nEle recuperará acesso ao ambiente como motorista.`, "Vincular Usuário", "Vincular");
+  if (!confirm) return;
+  
+  try {
+    await updateDoc(doc(db, "users", driverUid), {
+      adminId: window.companyId,
+      companyId: window.companyId,
+      role: 'driver'
+    });
+    showToast(`${name} foi vinculado novamente à frota!`, "success");
+    loadFleetDrivers();
+    if (window.refreshBuilderDriverList) window.refreshBuilderDriverList();
+  } catch(e) {
+    showToast("Erro ao vincular: " + e.message, "error");
+  }
+};
+
 window.demoteToDriver = async function(driverUid, name) {
   if (window.userRole !== 'admin') {
     showToast("Apenas o proprietário (Admin) pode alterar cargos gerenciais.", "error");
@@ -4277,10 +4285,6 @@ window.demoteToDriver = async function(driverUid, name) {
 
 window.promoteToCoAdmin = async function(driverUid, name) {
   if (!checkRole('admin')) return;
-  if (window.userRole !== 'admin') {
-    showToast("Apenas o proprietário (Admin) pode promover Co-Admins.", "error");
-    return;
-  }
   
   const confirm = await window.showConfirm(`Deseja promover "${name}" a Co-Administrador?\nEle terá permissões para gerenciar a frota e criar rotas.`, "Promover a Co-Admin", "🚀 Promover");
   if (!confirm) return;
@@ -4361,40 +4365,8 @@ window.openAdminHub = function() {
   loadAdminHubData();
 };
 
-window.renameDriver = async function(driverUid, oldName) {
-  if (!checkRole('admin')) return;
-  const newName = prompt(`Alterar nome para "${oldName}":`, oldName);
-  if (newName === null) return;
-  
-  try {
-    const trimmedName = newName.trim();
-    if (!trimmedName) return showToast("O nome não pode ser vazio.", "error");
-    await updateDoc(doc(db, "users", driverUid), { nome: trimmedName });
-
-    // 1. Update in-memory _fleetDrivers cache
-    if (window._fleetDrivers) {
-      const cached = window._fleetDrivers.find(d => d.uid === driverUid);
-      if (cached) cached.nome = trimmedName;
-    }
-
-    // 2. If the Fleet Panel (Rotas Futuras) is currently open, re-render it
-    const fleetPanel = document.getElementById('fleetPanel');
-    if (fleetPanel && fleetPanel.style.display !== 'none') {
-      renderFleetDriverCards();
-    }
-
-    // 3. If Monitor (Visualizar Motoristas) is open, refresh driver pills/markers immediately
-    const liveSpyEl = document.getElementById('liveSpyModal');
-    if (liveSpyEl && liveSpyEl.classList.contains('active') && window._spyRefresh) {
-      window._spyRefresh();
-    }
-
-    // NOTE: Admin Hub (Monitorar ao Vivo) auto-updates via its existing onSnapshot.
-    showToast("Nome atualizado com sucesso!", "success");
-  } catch(e) {
-    showToast("Erro ao atualizar nome: " + e.message, "error");
-  }
-};
+// [REMOVIDO] window.renameDriver — função morta, duplicata exata de saveDriverName.
+// Toda a lógica de renomear motorista agora é centralizada em saveDriverName (fleet modal).
 
 window.deleteDriver = async function(driverUid, name) {
   if (!checkRole('admin')) return;
@@ -4431,17 +4403,39 @@ window.closeAdminHub = function() {
     window._adminHubUnsubscribe();
     window._adminHubUnsubscribe = null;
   }
+  window._ahubDriversCache = null;
+  window._ahubSelectedUid = null;
 };
 
+// ── Cache e estado do Admin Hub v2 ──
+window._ahubDriversCache = null;
+window._ahubSelectedUid = null;
+
 async function loadAdminHubData() {
-  const content = document.getElementById('adminHubContent');
-  content.innerHTML = `
-    <div style="padding: 20px; text-align: center;">
-      <div class="status-pulse blue" style="margin-right: 0; width: 12px; height: 12px;"></div>
-      <p style="font-size:12px; color:var(--pr-text-muted); margin-top:10px;">Sincronizando Frota ao Vivo...</p>
-      <div style="font-size:9px; color:var(--pr-blue-mid); font-weight:700; margin-top:5px; text-transform:uppercase; letter-spacing:1px; animation: pulse 2s infinite;">● Conexão Ativa</div>
-    </div>`;
+  const list = document.getElementById('ahubDriverList');
+  const countEl = document.getElementById('ahubDriverCount');
+  const searchInput = document.getElementById('ahubSearchInput');
   
+  if (searchInput) searchInput.value = '';
+  
+  list.innerHTML = `
+    <div class="ahub-empty-state">
+      <div class="status-pulse blue" style="margin-right:0;width:12px;height:12px;"></div>
+      <div style="font-size:11px;color:var(--pr-text-muted);margin-top:10px;">Sincronizando frota...</div>
+    </div>`;
+
+  // Reset detail panel
+  const detailContent = document.getElementById('ahubDetailContent');
+  detailContent.className = 'ahub-detail-empty';
+  detailContent.innerHTML = `
+    <div style="text-align:center;padding:60px 20px;">
+      <div style="font-size:48px;opacity:0.3;margin-bottom:14px;">📋</div>
+      <div class="text-dark-auto" style="font-size:15px;font-weight:700;margin-bottom:6px;">Selecione um motorista</div>
+      <div style="font-size:12px;color:var(--pr-text-muted);max-width:220px;margin:0 auto;line-height:1.5;">
+        Clique em um motorista à esquerda para ver detalhes, desempenho e gerenciar o perfil.
+      </div>
+    </div>`;
+
   if (window._adminHubUnsubscribe) {
     window._adminHubUnsubscribe();
   }
@@ -4449,13 +4443,12 @@ async function loadAdminHubData() {
   try {
     const usersQ = query(collection(db, "users"), where("adminId", "==", window.companyId));
     
-    // Fail-safe para sincronização: se demorar demais, avisar o usuário
     const syncTimeout = setTimeout(() => {
-      if (content.querySelector('.status-pulse')) {
-        content.innerHTML = `
-          <div style="padding: 30px; text-align: center; color: var(--pr-text-muted);">
-            <p style="font-size: 12px;">A conexão está demorando mais que o esperado.</p>
-            <button onclick="window.loadAdminHubData()" class="mbtn mbtn-save" style="margin-top:10px; padding: 8px 16px; font-size:11px;">Tentar Reiniciar Conexão</button>
+      if (list.querySelector('.status-pulse')) {
+        list.innerHTML = `
+          <div class="ahub-empty-state">
+            <div style="font-size:11px;color:var(--pr-text-muted);">Conexão lenta.</div>
+            <button onclick="window.loadAdminHubData()" class="mbtn mbtn-save" style="margin-top:8px;padding:6px 14px;font-size:10px;">Tentar novamente</button>
           </div>`;
       }
     }, 10000);
@@ -4463,131 +4456,261 @@ async function loadAdminHubData() {
     window._adminHubUnsubscribe = onSnapshot(usersQ, (snapshot) => {
       clearTimeout(syncTimeout);
       
-      if (snapshot.empty) {
-        content.innerHTML = `<div style="padding: 40px; text-align: center; opacity: 0.5;">
-          <div class="text-dark-auto" style="font-size: 13px; font-weight: 700;">Nenhum motorista vinculado</div>
-          <div style="font-size: 11px; color: var(--pr-text-muted); margin-top: 5px;">Use "Minha Frota" para convidar sua equipe.</div>
-        </div>`;
+      // Build drivers cache
+      const drivers = [];
+      snapshot.forEach(docSnap => {
+        const u = docSnap.data();
+        drivers.push({ uid: docSnap.id, ...u });
+      });
+      window._ahubDriversCache = drivers;
+      
+      // Update count
+      countEl.textContent = `${drivers.length} motorista${drivers.length !== 1 ? 's' : ''}`;
+      
+      if (drivers.length === 0) {
+        list.innerHTML = `
+          <div class="ahub-empty-state">
+            <div style="font-size:28px;opacity:0.4;margin-bottom:6px;">👥</div>
+            <div class="text-dark-auto" style="font-size:11px;font-weight:700;">Nenhum motorista vinculado</div>
+            <div style="font-size:10px;color:var(--pr-text-muted);margin-top:4px;">Use "Minha Frota" para convidar.</div>
+          </div>`;
         return;
       }
-
-      // Se o grid não existe, cria-o. Se existe, apenas atualizamos o que mudou.
-      let grid = content.querySelector('.hub-grid');
-      if (!grid) {
-        content.innerHTML = '';
-        grid = document.createElement('div');
-        grid.className = 'hub-grid';
-        grid.style.display = "grid";
-        grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(280px, 1fr))";
-        grid.style.gap = "15px";
-        content.appendChild(grid);
+      
+      // Render sidebar items
+      ahubRenderDriverList(drivers);
+      
+      // If a driver was previously selected, update its detail
+      if (window._ahubSelectedUid) {
+        const stillExists = drivers.find(d => d.uid === window._ahubSelectedUid);
+        if (stillExists) {
+          ahubShowDriverDetail(stillExists);
+        }
       }
-
-      snapshot.docChanges().forEach(change => {
-        const u = change.doc.data();
-        const driverId = change.doc.id;
-        
-        if (change.type === "removed" || (u && u.role !== "driver")) {
-          const existingCard = document.getElementById(`card-hub-${driverId}`);
-          if (existingCard) existingCard.remove();
-          return;
-        }
-
-        // Renderização Incremental (Senior approach: Don't clear everything)
-        let card = document.getElementById(`card-hub-${driverId}`);
-        if (!card) {
-          card = document.createElement('div');
-          card.id = `card-hub-${driverId}`;
-          card.className = 'hub-card';
-          grid.appendChild(card);
-        }
-
-        const r = u.lastRouteSummary || null;
-        let displayName = u.nome || u.email || 'Motorista';
-        const initial = displayName.charAt(0).toUpperCase();
-
-        if (!r) {
-          card.innerHTML = `
-            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
-              <div style="display: flex; gap: 12px; align-items: center;">
-                <div class="fdc-avatar">${initial}</div>
-                <div>
-                  <div class="fdc-name" style="display:flex; align-items:center; gap:8px;">
-                    ${escapeHTML(displayName)}
-                  </div>
-                  <div class="fdc-email" style="margin-top:6px;">${escapeHTML(u.email || "")}</div>
-                </div>
-              </div>
-            </div>
-            <div style="font-size:11px; color:var(--pr-text-muted); background:var(--pr-bg); padding:8px 10px; border-radius:8px; border:1px solid var(--pr-border); margin-top:10px;">
-              Pendente: Sem histórico recente
-            </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-top:10px;">
-              <button onclick="window.closeAdminHub(); window.openLiveSpy('${driverId}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; background:var(--pr-blue-dark);">Visualizar</button>
-              <button onclick="window.openDriverStats('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px;">Desempenho</button>
-              <button onclick="window.deleteDriver('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; background:#e74c3c; border-color:#c0392b;">Excluir</button>
-            </div>
-          `;
-        } else {
-          const routeStatus = r.status || "Pendente";
-          let stClass = "blue";
-          let stBadgeColor = "var(--pr-blue-dark)";
-          
-          if (routeStatus === "Concluída") { stClass = "green"; stBadgeColor = "#27ae60"; }
-          else if (routeStatus === "Pendente") { stClass = "orange"; stBadgeColor = "#f39c12"; }
-          else if (routeStatus === "Cancelada") { stBadgeColor = "#e74c3c"; }
-
-          card.innerHTML = `
-            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <div class="fdc-avatar">${initial}</div>
-                <div style="flex: 1; min-width: 0;">
-                  <div class="text-dark-auto" style="font-weight:800; font-size:14px;">${escapeHTML(displayName)}</div>
-                  <div style="font-size:11px; color:var(--pr-text-muted); display: flex; align-items: center; margin-top:2px;">
-                    <span class="status-pulse ${stClass}"></span>
-                    ${escapeHTML(routeStatus)}
-                  </div>
-                </div>
-              </div>
-              <span class="hub-status-badge" style="background: ${stBadgeColor}">${escapeHTML(routeStatus)}</span>
-            </div>
-            
-            <div style="background: var(--pr-bg); border-radius: 8px; padding: 10px; margin-top: 10px; border: 1px dashed var(--pr-border);">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="font-size:11px; font-weight: 700; color: var(--pr-text);">
-                  ${r.stopsCount || 0} Paradas 
-                  ${r.expectedWeight ? ` | ${r.expectedWeight}kg` : ''}
-                </div>
-                <div id="hub-nearest-${driverId}" style="font-size:9px; font-weight:700; color:${stBadgeColor};"></div>
-              </div>
-              ${r.assignedByName ? `<div style="font-size:9px; color:var(--pr-blue-mid); margin-top:2px;">Atribuído por: ${escapeHTML(r.assignedByName)}</div>` : ''}
-            </div>
-
-            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-top:10px;">
-              <button onclick="window.closeAdminHub(); window.openLiveSpy('${driverId}')" class="mbtn mbtn-save" style="padding:8px; font-size:11px; background:var(--pr-blue-dark);">Visualizar</button>
-              <button onclick="window.openDriverStats('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px;">Desempenho</button>
-              <button onclick="window.deleteDriver('${driverId}', '${escapeHTML(displayName)}')" class="mbtn mbtn-cancel" style="padding:8px; font-size:11px; background:#e74c3c; border-color:#c0392b;">Excluir</button>
-            </div>
-          `;
-          
-          // Listener RTDB para localização (Otimizado: apenas uma vez)
-          if (routeStatus === "Em Rota") {
-             const locRef = rtdbRef(rtdb, `locations/${window.companyId}/${driverId}`);
-             onValue(locRef, (lSnap) => {
-                const lData = lSnap.val();
-                const targetEl = document.getElementById(`hub-nearest-${driverId}`);
-                if (targetEl && lData && lData.nearestStop) {
-                  targetEl.textContent = `Perto de: ${lData.nearestStop.name}`;
-                }
-             }, { onlyOnce: true });
-          }
-        }
-      });
     });
 
   } catch(e) {
     console.warn("Erro ao configurar listener do hub", e);
-    content.innerHTML = '<p style="text-align:center; color:red; font-size:12px;">Erro ao carregar dados em tempo real.</p>';
+    list.innerHTML = '<div class="ahub-empty-state"><div style="font-size:11px;color:#e74c3c;">Erro ao carregar dados.</div></div>';
+  }
+}
+
+// ── Renderizar lista de motoristas na sidebar ──
+function ahubRenderDriverList(drivers, filterText) {
+  const list = document.getElementById('ahubDriverList');
+  if (!list) return;
+  
+  let filtered = drivers;
+  if (filterText) {
+    const q = filterText.toLowerCase();
+    filtered = drivers.filter(d => 
+      (d.nome || '').toLowerCase().includes(q) || 
+      (d.email || '').toLowerCase().includes(q)
+    );
+  }
+  
+  if (filtered.length === 0) {
+    list.innerHTML = `
+      <div class="ahub-empty-state">
+        <div style="font-size:22px;opacity:0.4;margin-bottom:6px;">🔍</div>
+        <div style="font-size:11px;color:var(--pr-text-muted);">Nenhum resultado encontrado</div>
+      </div>`;
+    return;
+  }
+  
+  list.innerHTML = '';
+  
+  filtered.forEach(d => {
+    const displayName = d.nome || d.email || 'Motorista';
+    const initial = displayName.charAt(0).toUpperCase();
+    const r = d.lastRouteSummary || null;
+    
+    // Determine status
+    let statusClass = 'idle';
+    if (r && (r.status === 'Em Rota' || r.status === 'Em Andamento')) statusClass = 'online';
+    else if (r && r.status === 'Pendente') statusClass = 'pending';
+    
+    const isActive = window._ahubSelectedUid === d.uid;
+    
+    const item = document.createElement('div');
+    item.className = `ahub-driver-item${isActive ? ' active' : ''}`;
+    item.id = `ahub-item-${d.uid}`;
+    item.onclick = () => {
+      window._ahubSelectedUid = d.uid;
+      // Update active states
+      list.querySelectorAll('.ahub-driver-item').forEach(el => el.classList.remove('active'));
+      item.classList.add('active');
+      ahubShowDriverDetail(d);
+    };
+    
+    item.innerHTML = `
+      <div class="ahub-driver-avatar">${initial}</div>
+      <div class="ahub-driver-info">
+        <div class="ahub-driver-name text-dark-auto">${escapeHTML(displayName)}</div>
+        <div class="ahub-driver-email">${escapeHTML(d.email || '')}</div>
+      </div>
+      <div class="ahub-status-dot ${statusClass}" title="${statusClass === 'online' ? 'Em rota' : statusClass === 'pending' ? 'Pendente' : 'Inativo'}"></div>
+    `;
+    
+    list.appendChild(item);
+  });
+}
+
+// ── Filtrar motoristas na sidebar ──
+window.ahubFilterDrivers = function() {
+  const input = document.getElementById('ahubSearchInput');
+  if (!input || !window._ahubDriversCache) return;
+  ahubRenderDriverList(window._ahubDriversCache, input.value.trim());
+};
+
+// ── Mostrar detalhes do motorista no painel direito ──
+async function ahubShowDriverDetail(driver) {
+  const panel = document.getElementById('ahubDetailContent');
+  if (!panel) return;
+  
+  panel.className = '';
+  
+  const displayName = driver.nome || driver.email || 'Motorista';
+  const initial = displayName.charAt(0).toUpperCase();
+  const r = driver.lastRouteSummary || null;
+  
+  // Determine status
+  let statusLabel = 'Inativo';
+  let statusClass = 'idle';
+  if (r && (r.status === 'Em Rota' || r.status === 'Em Andamento')) { statusLabel = 'Em Rota'; statusClass = 'active'; }
+  else if (r && r.status === 'Pendente') { statusLabel = 'Rota Pendente'; statusClass = 'pending'; }
+  else if (r && r.status === 'Concluída') { statusLabel = 'Rota Concluída'; statusClass = 'active'; }
+  
+  const roleLabel = driver.role === 'co-admin' ? 'Co-Administrador' : driver.role === 'admin' ? 'Administrador' : 'Motorista';
+  
+  // Build detail HTML
+  let html = `
+    <!-- Header -->
+    <div class="ahub-detail-header">
+      <div class="ahub-detail-avatar">${initial}</div>
+      <div style="flex:1;min-width:0;">
+        <div class="ahub-detail-title text-dark-auto">${escapeHTML(displayName)}</div>
+        <div class="ahub-detail-subtitle">
+          <span>${escapeHTML(driver.email || '—')}</span>
+          <span>•</span>
+          <span>${roleLabel}</span>
+        </div>
+      </div>
+      <span class="ahub-badge ${statusClass}">${statusLabel}</span>
+    </div>
+
+    <!-- Body -->
+    <div class="ahub-detail-body">
+      <!-- Informações do perfil -->
+      <div>
+        <div class="ahub-section-label">📊 Informações do Perfil</div>
+        <div class="ahub-info-grid">
+          <div class="ahub-info-card">
+            <div class="ahub-info-label">E-mail</div>
+            <div style="font-size:12px;font-weight:600;color:var(--pr-text);word-break:break-all;">${escapeHTML(driver.email || '—')}</div>
+          </div>
+          <div class="ahub-info-card">
+            <div class="ahub-info-label">Cargo</div>
+            <div style="font-size:13px;font-weight:700;color:var(--pr-blue-mid);">${roleLabel}</div>
+          </div>
+          <div class="ahub-info-card">
+            <div class="ahub-info-label">Status Atual</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+              <div class="ahub-status-dot ${statusClass === 'active' ? 'online' : statusClass}"></div>
+              <span style="font-size:12px;font-weight:700;color:var(--pr-text);">${statusLabel}</span>
+            </div>
+          </div>
+          <div class="ahub-info-card">
+            <div class="ahub-info-label">Cadastro</div>
+            <div style="font-size:12px;font-weight:600;color:var(--pr-text);">${driver.createdAt ? new Date(driver.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '—'}</div>
+          </div>
+        </div>
+      </div>`;
+
+  // Performance section — load from user doc
+  html += `
+      <!-- Desempenho -->
+      <div>
+        <div class="ahub-section-label">🏆 Desempenho</div>
+        <div id="ahubPerfGrid" class="ahub-info-grid">
+          <div class="ahub-info-card">
+            <div class="ahub-info-label">Rotas Concluídas</div>
+            <div class="ahub-info-value" style="color:var(--pr-blue-dark);" id="ahubStatRoutes">${driver.perfTotalCompleted || 0}</div>
+          </div>
+          <div class="ahub-info-card">
+            <div class="ahub-info-label">Paradas Realizadas</div>
+            <div class="ahub-info-value" style="color:var(--pr-blue-mid);" id="ahubStatStops">${driver.perfTotalStops || '—'}</div>
+          </div>
+          <div class="ahub-info-card">
+            <div class="ahub-info-label">Faturamento</div>
+            <div class="ahub-info-value" style="color:#27ae60;font-size:16px;" id="ahubStatValue">R$ ${(driver.perfTotalValue || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</div>
+          </div>
+          <div class="ahub-info-card">
+            <div class="ahub-info-label">Peso Entregue</div>
+            <div class="ahub-info-value" style="font-size:16px;" id="ahubStatWeight">${(driver.perfTotalWeight || 0).toLocaleString('pt-BR')} kg</div>
+          </div>
+        </div>
+      </div>`;
+
+  // Current route section
+  if (r) {
+    html += `
+      <!-- Rota Atual -->
+      <div>
+        <div class="ahub-section-label">🗺️ Rota Atual</div>
+        <div class="ahub-route-item">
+          <div style="flex:1;">
+            <div style="font-size:12px;font-weight:700;color:var(--pr-text);">${r.stopsCount || 0} Paradas ${r.expectedWeight ? `· ${r.expectedWeight}kg` : ''}</div>
+            <div style="font-size:10px;color:var(--pr-text-muted);margin-top:3px;">
+              Status: <strong style="color:${r.status === 'Concluída' ? '#27ae60' : r.status === 'Em Rota' ? 'var(--pr-blue-mid)' : '#e67e22'}">${escapeHTML(r.status || 'Pendente')}</strong>
+              ${r.assignedByName ? ` · Atribuído por ${escapeHTML(r.assignedByName)}` : ''}
+            </div>
+          </div>
+          <span class="ahub-badge ${r.status === 'Concluída' ? 'active' : r.status === 'Em Rota' ? 'active' : 'pending'}" style="font-size:9px;">${escapeHTML(r.status || 'Pendente')}</span>
+        </div>
+      </div>`;
+  } else {
+    html += `
+      <div>
+        <div class="ahub-section-label">🗺️ Rota Atual</div>
+        <div style="background:var(--pr-bg);border:1px dashed var(--pr-border);border-radius:10px;padding:18px;text-align:center;">
+          <div style="font-size:10px;color:var(--pr-text-muted);font-weight:600;">Sem rota atribuída no momento</div>
+        </div>
+      </div>`;
+  }
+
+  html += `
+    </div>
+
+    <!-- Actions Bar -->
+    <div class="ahub-actions-bar">
+      <button class="ahub-action-btn primary" onclick="window.closeAdminHub(); window.openLiveSpy('${driver.uid}')">
+        📍 Visualizar
+      </button>
+      <button class="ahub-action-btn" onclick="window.openDriverStats('${driver.uid}', '${escapeHTML(displayName)}')">
+        📊 Desempenho
+      </button>
+      <button class="ahub-action-btn danger" onclick="window.deleteDriver('${driver.uid}', '${escapeHTML(displayName)}')">
+        🗑 Excluir
+      </button>
+    </div>
+  `;
+
+  panel.innerHTML = html;
+  
+  // Async: load recent history count for stops
+  try {
+    const hQ = query(collection(db, "users", driver.uid, "history"), orderBy("createdAt", "desc"), limit(20));
+    const hSnap = await getDocs(hQ);
+    let totalStops = 0;
+    hSnap.forEach(docSnap => {
+      const d = docSnap.data();
+      totalStops += (d.stopsCount || (d.stops ? d.stops.length : 0));
+    });
+    const stopsEl = document.getElementById('ahubStatStops');
+    if (stopsEl) stopsEl.textContent = totalStops;
+  } catch(e) {
+    console.warn('Erro ao carregar stops do hub detail:', e);
   }
 }
 
@@ -4994,6 +5117,10 @@ function stopDriverGPS() {
 const _origHandleLogout = window.handleLogout;
 window.handleLogout = async function() {
   stopDriverGPS();
+  // Limpar interval de detecção de role para evitar memory leak
+  if (typeof _spyRoleCheckInterval !== 'undefined') {
+    clearInterval(_spyRoleCheckInterval);
+  }
   if (_origHandleLogout) await _origHandleLogout();
 };
 
@@ -5014,6 +5141,23 @@ const _spyRoleCheckInterval = setInterval(() => {
   let spyCenterUid = null;
   let spyPolylines = {}; // uid → L.polyline
   let tileLayer = null;
+
+  // Expor refresh para que saveDriverName e outros possam forçar atualização
+  // do mapa de monitoramento quando nomes de motoristas mudam.
+  window._spyRefresh = function() {
+    if (!spyRtdbRef || !spyMap) return;
+    // Força releitura do RTDB — o callback do onValue já faz updateDriverPills + updateDriverMarkers
+    const adminKey = window.companyId || (window.currentUser && window.currentUser.uid);
+    if (!adminKey) return;
+    // O onValue listener já está ativo e atualiza em tempo real,
+    // mas precisamos forçar re-render dos pills com nomes atualizados do cache
+    const locRef = rtdbRef(rtdb, `locations/${adminKey}`);
+    onValue(locRef, (snapshot) => {
+      const raw = snapshot.val() || {};
+      updateDriverPills(raw);
+      updateDriverMarkers(raw);
+    }, { onlyOnce: true });
+  };
 
   const DRIVER_COLORS = ['#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63'];
   function colorForIndex(i) { return DRIVER_COLORS[i % DRIVER_COLORS.length]; }

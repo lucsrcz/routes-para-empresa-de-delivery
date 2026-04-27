@@ -18,20 +18,14 @@ service cloud.firestore {
     // companyId do usuário logado
     // Lógica Sênior: Identifica a empresa (UID do dono) independente do papel
     function myCompany() {
-      let d = me();
-      let role = d.get('role', '');
-      let storedCompany = d.get('companyId', null);
-      
-      if (storedCompany != null) return storedCompany;
-      if (role == 'admin') return request.auth.uid;
-      if (role == 'co-admin') return d.get('adminId', null);
-      return null;
+      return me().get('companyId', 
+        me().get('role', '') == 'admin' ? request.auth.uid : me().get('adminId', null)
+      );
     }
 
     // Verifica se o usuário logado tem papel administrativo (Admin ou Co-Admin)
     function isAdmin() {
-      let role = me().get('role', '');
-      return role == 'admin' || role == 'co-admin';
+      return me().get('role', '') == 'admin' || me().get('role', '') == 'co-admin';
     }
 
     // Verifica se o usuário logado é admin desta empresa específica
@@ -90,80 +84,51 @@ service cloud.firestore {
     // CONVITES DE MOTORISTA
     // ═══════════════════════════════════════════════════════════
     match /invites/{inviteId} {
-      // Apenas admin da empresa ou o motorista que conhece o ID pode ler (get)
-      // Listagem (list) negada para evitar varredura
       allow get: if isAuth();
       allow list: if isAuth() && isAdmin(); 
 
       allow create: if isAuth() && isAdmin() && request.resource.data.companyId == myCompany();
       allow update: if isAuth() && (
         isAdminOf(resource.data.get('companyId', null)) ||
-        (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado', 'usedBy']) &&
-          request.resource.data.get('usado', false) == true &&
-          request.resource.data.get('usedBy', '') == request.auth.uid
-        )
+        (isAuth() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado', 'usedBy']))
       );
       allow delete: if isAuth() && isAdminOf(resource.data.get('companyId', null));
     }
 
     // ═══════════════════════════════════════════════════════════
-    // CHAVES DE CO-ADMIN
+    // CHAVES DE ACESSO ADMIN (ADM-XXXXXX)
     // ═══════════════════════════════════════════════════════════
     match /admin_keys/{keyId} {
-      // Apenas get individual (conhecendo a chave). Listagem proibida.
       allow get: if isAuth();
       allow list: if isAuth() && isAdmin();
-
       allow create: if isAuth() && isAdmin() && request.resource.data.companyId == myCompany();
       allow update: if isAuth() && (
         isAdminOf(resource.data.get('companyId', null)) ||
-        (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado', 'usedBy']) &&
-          request.resource.data.get('usedBy', '') == request.auth.uid
-        )
+        (isAuth() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado']))
       );
       allow delete: if isAuth() && isAdminOf(resource.data.get('companyId', null));
     }
 
     // ═══════════════════════════════════════════════════════════
-    // DADOS DA EMPRESA
+    // ROTAS E SERVIÇOS
     // ═══════════════════════════════════════════════════════════
-    match /companies/{companyId} {
-      allow read, write: if isAuth() &&
-        isAdmin() &&
-        myCompany() == companyId;
-
-      // ── Metas Mensais ────────────────────────────────────────
-      match /monthly_goals/{goalId} {
-        allow read, write: if isAuth() && isAdmin() && myCompany() == companyId;
-      }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // REGRAS DE COMISSÃO (top-level, isoladas por companyId)
-    // ═══════════════════════════════════════════════════════════
-    match /commission_rules/{ruleId} {
-      // Admin e Drivers da mesma empresa podem ler
+    match /routes/{routeId} {
       allow read: if isAuth() && (
-        resource.data.companyId == myCompany()
+        isAdminOf(resource.data.get('companyId', null)) ||
+        resource.data.driverId == request.auth.uid
       );
-      // Apenas Admin da empresa pode criar
-      allow create: if isAuth() && isAdmin() &&
-        request.resource.data.companyId == myCompany();
-      // Apenas Admin da empresa pode editar/excluir
-      allow update, delete: if isAuth() && isAdmin() &&
-        resource.data.companyId == myCompany();
+      allow create: if isAuth() && isAdmin() && request.resource.data.companyId == myCompany();
+      allow update: if isAuth() && (
+        isAdminOf(resource.data.get('companyId', null)) ||
+        (resource.data.driverId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'completedAt', 'points']))
+      );
+      allow delete: if isAuth() && isAdminOf(resource.data.get('companyId', null));
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // METAS MENSAIS (top-level, isoladas por companyId)
-    // ═══════════════════════════════════════════════════════════
-    match /monthly_goals/{goalId} {
-      allow read: if isAuth() && resource.data.companyId == myCompany();
-      allow create: if isAuth() && isAdmin() && request.resource.data.companyId == myCompany();
-      allow delete: if isAuth() && isAdmin() && resource.data.companyId == myCompany();
-      allow update: if isAuth() && resource.data.companyId == myCompany();
+    // Configurações Globais / Regras de Comissão
+    match /settings/{docId} {
+      allow read: if isAuth();
+      allow write: if isAuth() && isAdmin();
     }
   }
 }
