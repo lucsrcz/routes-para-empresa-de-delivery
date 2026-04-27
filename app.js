@@ -520,7 +520,7 @@ async function refreshBuilderDriverList() {
   driverListEl.innerHTML = '<div style="padding:10px; font-size:11px; color:var(--pr-text-muted);">Carregando motoristas...</div>';
 
   try {
-    const q = query(collection(db, "users"), where("adminId", "==", window.companyId));
+    const q = query(collection(db, "users"), where("companyId", "==", window.companyId));
     const querySnapshot = await getDocs(q).catch(e => {
       console.warn("Falha ao buscar motoristas:", e);
       return { empty: true };
@@ -534,8 +534,8 @@ async function refreshBuilderDriverList() {
 
     querySnapshot.forEach((docSnap) => {
       const u = docSnap.data();
-      // O builder de rotas só deve mostrar motoristas, não co-admins
-      if (u.role === "driver") {
+      // O builder de rotas só deve mostrar motoristas vinculados a esta empresa
+      if (u.role === "driver" && u.companyId === window.companyId) {
         const displayName = u.nome || 'Motorista sem nome';
         const initial = displayName.charAt(0).toUpperCase();
         window._fleetDrivers.push({ uid: docSnap.id, nome: u.nome, email: u.email });
@@ -2877,7 +2877,7 @@ async function renderFleetDriverCards() {
   grid.innerHTML = '<p style="text-align:center; width:100%; font-size:12px; color:var(--pr-text-muted); padding:20px;">Carregando motoristas...</p>';
 
   try {
-    const q = query(collection(db, "users"), where("adminId", "==", window.companyId));
+    const q = query(collection(db, "users"), where("companyId", "==", window.companyId));
     const snapshot = await getDocs(q);
     grid.innerHTML = '';
 
@@ -2885,8 +2885,11 @@ async function renderFleetDriverCards() {
     const myUid = currentUser ? currentUser.uid : null;
     for (const docSnap of snapshot.docs) {
       const u = docSnap.data();
-      // Excluir o próprio admin/co-admin e não-motoristas
+      // Excluir o próprio admin/co-admin logado
       if (myUid && docSnap.id === myUid) continue;
+      // Verificar isolamento multi-tenant
+      if (u.companyId !== window.companyId) continue;
+      // Somente motoristas neste painel
       if (u.role !== 'driver') continue;
       driverCount++;
 
@@ -4444,8 +4447,13 @@ async function loadAdminHubData() {
   }
 
   try {
-    const usersQ = query(collection(db, "users"), where("adminId", "==", window.companyId));
+    // ── Query robusta: isolar por companyId (multi-tenant) ──
+    // companyId é o campo canônico de isolamento por empresa.
+    // adminId pode não existir em admins primários, mas companyId sempre existe.
+    const usersQ = query(collection(db, "users"), where("companyId", "==", window.companyId));
     
+    console.log('[AdminHub] Query companyId:', window.companyId, '| myUid:', currentUser?.uid);
+
     const syncTimeout = setTimeout(() => {
       if (list.querySelector('.status-pulse')) {
         list.innerHTML = `
@@ -4459,16 +4467,27 @@ async function loadAdminHubData() {
     window._adminHubUnsubscribe = onSnapshot(usersQ, (snapshot) => {
       clearTimeout(syncTimeout);
       
-      // Build drivers cache — exclude the current logged-in user (admin/co-admin)
+      // Build drivers cache — filtro rigoroso
       const myUid = currentUser ? currentUser.uid : null;
       const drivers = [];
       snapshot.forEach(docSnap => {
-        // Não exibir o próprio admin/co-admin na lista de frota
+        // 1. Nunca exibir o próprio admin/co-admin logado
         if (myUid && docSnap.id === myUid) return;
+        
         const u = docSnap.data();
+        
+        // 2. Verificar se o companyId do doc realmente bate (segurança extra)
+        if (u.companyId !== window.companyId) return;
+        
+        // 3. Excluir admins primários (role=admin sem adminId) — eles são donos de frota, não motoristas.
+        //    Co-admins (role=admin COM adminId) são mantidos na lista.
+        if (u.role === 'admin' && !u.adminId) return;
+        
         drivers.push({ uid: docSnap.id, ...u });
       });
       window._ahubDriversCache = drivers;
+      
+      console.log('[AdminHub] Total docs retornados:', snapshot.size, '| Filtrados para exibição:', drivers.length);
       
       // Update count
       countEl.textContent = `${drivers.length} motorista${drivers.length !== 1 ? 's' : ''}`;
