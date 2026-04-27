@@ -1294,7 +1294,8 @@ body {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.ahub-status-dot.online { background: #00e676; box-shadow: 0 0 0 3px rgba(0,230,118,0.2); }
+.ahub-status-dot.online { background: var(--pr-blue-mid); box-shadow: 0 0 0 3px rgba(33,150,243,0.2); }
+.ahub-status-dot.done { background: #00e676; box-shadow: 0 0 0 3px rgba(0,230,118,0.2); }
 .ahub-status-dot.idle { background: #95a5a6; }
 .ahub-status-dot.pending { background: #e67e22; box-shadow: 0 0 0 3px rgba(230,126,34,0.2); }
 
@@ -1408,7 +1409,8 @@ body {
   letter-spacing: 0.03em;
   color: #fff;
 }
-.ahub-badge.active { background: #00c853; }
+.ahub-badge.active { background: var(--pr-blue-mid); }
+.ahub-badge.done { background: #00c853; }
 .ahub-badge.idle { background: #78909c; }
 .ahub-badge.pending { background: #e67e22; }
 
@@ -1612,6 +1614,7 @@ body {
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 .history-status.concluded { background: rgba(39,174,96,0.1); color: #27ae60; }
+.history-status.online { background: rgba(33,150,243,0.1); color: var(--pr-blue-mid); }
 .history-status.pending { background: rgba(230,126,34,0.1); color: #e67e22; }
 
 @media (max-width: 520px) {

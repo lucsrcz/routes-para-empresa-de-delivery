@@ -4528,6 +4528,7 @@ function ahubRenderDriverList(drivers, filterText) {
     // Determine status
     let statusClass = 'idle';
     if (r && (r.status === 'Em Rota' || r.status === 'Em Andamento')) statusClass = 'online';
+    else if (r && (r.status === 'Concluído' || r.status === 'Concluída')) statusClass = 'done';
     else if (r && r.status === 'Pendente') statusClass = 'pending';
     
     const isActive = window._ahubSelectedUid === d.uid;
@@ -4577,9 +4578,18 @@ async function ahubShowDriverDetail(driver) {
   // Determine status
   let statusLabel = 'Inativo';
   let statusClass = 'idle';
-  if (r && (r.status === 'Em Rota' || r.status === 'Em Andamento')) { statusLabel = 'Em Rota'; statusClass = 'active'; }
-  else if (r && r.status === 'Pendente') { statusLabel = 'Rota Pendente'; statusClass = 'pending'; }
-  else if (r && r.status === 'Concluída') { statusLabel = 'Rota Concluída'; statusClass = 'active'; }
+  if (r && (r.status === 'Em Rota' || r.status === 'Em Andamento')) { 
+    statusLabel = 'Em Rota'; 
+    statusClass = 'active'; 
+  }
+  else if (r && (r.status === 'Concluída' || r.status === 'Concluído')) { 
+    statusLabel = 'Concluído'; 
+    statusClass = 'done'; 
+  }
+  else if (r && r.status === 'Pendente') { 
+    statusLabel = 'Pendente'; 
+    statusClass = 'pending'; 
+  }
   
   const roleLabel = driver.role === 'co-admin' ? 'Co-Administrador' : driver.role === 'admin' ? 'Administrador' : 'Motorista';
   
@@ -4662,11 +4672,11 @@ async function ahubShowDriverDetail(driver) {
           <div style="flex:1;">
             <div style="font-size:12px;font-weight:700;color:var(--pr-text);">${r.stopsCount || 0} Paradas ${r.expectedWeight ? `· ${r.expectedWeight}kg` : ''}</div>
             <div style="font-size:10px;color:var(--pr-text-muted);margin-top:3px;">
-              Status: <strong style="color:${r.status === 'Concluída' ? '#27ae60' : r.status === 'Em Rota' ? 'var(--pr-blue-mid)' : '#e67e22'}">${escapeHTML(r.status || 'Pendente')}</strong>
+              Status: <strong style="color:${(r.status === 'Concluída' || r.status === 'Concluído') ? '#27ae60' : (r.status === 'Em Rota' || r.status === 'Em Andamento') ? 'var(--pr-blue-mid)' : '#e67e22'}">${escapeHTML(r.status || 'Pendente')}</strong>
               ${r.assignedByName ? ` · Atribuído por ${escapeHTML(r.assignedByName)}` : ''}
             </div>
           </div>
-          <span class="ahub-badge ${r.status === 'Concluída' ? 'active' : r.status === 'Em Rota' ? 'active' : 'pending'}" style="font-size:9px;">${escapeHTML(r.status || 'Pendente')}</span>
+          <span class="ahub-badge ${(r.status === 'Concluída' || r.status === 'Concluído') ? 'done' : (r.status === 'Em Rota' || r.status === 'Em Andamento') ? 'active' : 'pending'}" style="font-size:9px;">${escapeHTML(r.status || 'Pendente')}</span>
         </div>
       </div>`;
   } else {
@@ -5513,10 +5523,15 @@ const _spyRoleCheckInterval = setInterval(() => {
         runningStops += stops;
         
         const isConcluded = (data.status === 'CONCLUDED' || data.status === 'Concluída' || data.status === 'Finalizada');
+        const isEnRoute = (data.status === 'Em Rota' || data.status === 'Em Andamento');
         const deliveredVal = Number(data.deliveredValue || data.cargoValue || 0);
         const deliveredWeight = Number(data.deliveredWeight || data.cargoWeight || 0);
         const date = data.createdAt ? data.createdAt.toDate().toLocaleDateString('pt-BR') : '—';
-        const statusClass = isConcluded ? 'concluded' : 'pending';
+        
+        let statusClass = 'pending';
+        let statusLabel = 'Pendente';
+        if (isConcluded) { statusClass = 'concluded'; statusLabel = 'Concluída'; }
+        else if (isEnRoute) { statusClass = 'online'; statusLabel = 'Em Rota'; }
 
         const item = document.createElement('div');
         item.className = 'stats-history-card';
@@ -5528,7 +5543,7 @@ const _spyRoleCheckInterval = setInterval(() => {
               📦 ${deliveredWeight}kg · R$ ${deliveredVal.toLocaleString('pt-BR')}
             </div>
           </div>
-          <div class="history-status ${statusClass}">${isConcluded ? 'Concluída' : 'Pendente'}</div>
+          <div class="history-status ${statusClass}">${statusLabel}</div>
         `;
         listContainer.appendChild(item);
       });
