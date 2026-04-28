@@ -2894,6 +2894,27 @@ window.closeFleetPanel = function() {
   if (pill) pill.style.display = '';
 };
 
+// Fechar Modal da Frota (Admin)
+window.closeFleetModal = function() {
+  document.getElementById('fleetModal').classList.remove('active');
+  document.getElementById('inviteLinkResult').style.display = 'none';
+  document.getElementById('adminInviteResult').style.display = 'none';
+  document.getElementById('sendInviteBtn').textContent = '🔗 Gerar Ficha Motorista';
+  document.getElementById('sendInviteBtn').style.pointerEvents = 'auto';
+
+  // Resetar views do modal para o estado inicial
+  const driversView = document.getElementById('fmDriversView');
+  const detailView = document.getElementById('fmDriverDetail');
+  if (driversView) driversView.style.display = 'flex';
+  if (detailView) detailView.style.display = 'none';
+
+  // Limpar listener se houver
+  if (window._fmScheduledRoutesUnsub) {
+    window._fmScheduledRoutesUnsub();
+    window._fmScheduledRoutesUnsub = null;
+  }
+};
+
 async function renderFleetDriverCards() {
   const grid = document.getElementById('fleetPanelGrid');
   if (!grid) return;
@@ -3026,37 +3047,40 @@ async function renderFleetDriverCards() {
       if (scheduledCountScheduled > 0) badgesHtml += `<span class="fdc-count-badge" style="background:#f1c40f; color:#000;">⏳ ${scheduledCountScheduled}</span>`;
       if (scheduledCountExpired > 0) badgesHtml += `<span class="fdc-count-badge" style="background:#e74c3c;">⚠️ ${scheduledCountExpired}</span>`;
 
-      const stopsCount = nextScheduledStops;
       const routeDetailHtml = `
         <div class="fdc-route-detail">
-          <div class="fdc-rd-item"><span class="fdc-rd-val">${stopsCount}</span><span class="fdc-rd-label">Paradas (AGENDADA)</span></div>
+          <div class="fdc-rd-item">
+            <span class="fdc-rd-val">${nextScheduledStops}</span>
+            <span class="fdc-rd-label">Paradas (Agendada)</span>
+          </div>
           ${badgesHtml ? `<div class="fdc-rd-divider"></div><div class="fdc-rd-badges">${badgesHtml}</div>` : ''}
         </div>
       `;
 
       const card = document.createElement('div');
       card.className = 'fleet-driver-card';
-      card.style.borderTop = `3px solid ${manualBorder}`;
+      // Aplicamos o border-top como um indicador de status sutil
+      card.style.borderTop = `4px solid ${manualBorder}`;
       card.onclick = () => window.fpOpenDriverDetail(uid, displayName, email);
       card.innerHTML = `
         ${routeDetailHtml}
         <div class="fdc-content">
-          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
             <div class="fdc-avatar">${initial}</div>
             <div style="flex:1; min-width:0;">
               <h4 class="fdc-name">${escapeHTML(displayName)}</h4>
               <p class="fdc-email">${escapeHTML(email)}</p>
             </div>
           </div>
-          <div class="fdc-footer" style="flex-direction: column; align-items: stretch; gap: 8px;">
-            <div style="display: flex; justify-content: space-between; gap: 4px;">
-              <div class="fdc-status-pill ${manualClass}" style="flex:1; justify-content:center;">
-                <span>${manualIcon}</span>
-                <span>${manualText}</span>
+          <div class="fdc-footer" style="flex-direction: column; align-items: stretch; gap: 8px; border-top: 1px solid var(--pr-border); padding-top: 12px; margin-top: auto;">
+            <div style="display: flex; justify-content: space-between; gap: 8px;">
+              <div class="fdc-status-pill ${manualClass}" style="flex:1; justify-content:center; border-radius: 8px; height: 32px;">
+                <span style="font-size: 12px;">${manualIcon}</span>
+                <span style="font-weight: 700;">${manualText}</span>
               </div>
-              <div class="fdc-status-pill" style="flex:1; justify-content:center; background-color:${schedColor}20; color:${schedColor}; border:1px solid ${schedColor}40;">
-                <span>${schedIcon}</span>
-                <span style="font-size:9px;">${schedText}</span>
+              <div class="fdc-status-pill" style="flex:1; justify-content:center; background-color:${schedColor}15; color:${schedColor}; border:1px solid ${schedColor}30; border-radius: 8px; height: 32px;">
+                <span style="font-size: 12px;">${schedIcon}</span>
+                <span style="font-size:10px; font-weight: 700;">${schedText}</span>
               </div>
             </div>
           </div>
@@ -3088,7 +3112,7 @@ window._fpCurrentDriverName = '';
 window._fpSchedulePoints = [];
 window._fpScheduledRoutesUnsub = null;
 
-// Abrir detalhe de um motorista
+// Abrir detalhe de um motorista (No Painel Lateral)
 window.fpOpenDriverDetail = function(uid, name, email) {
   window._fpCurrentDriverUid = uid;
   window._fpCurrentDriverName = name;
@@ -3101,10 +3125,26 @@ window.fpOpenDriverDetail = function(uid, name, email) {
   document.getElementById('fpDetailEmail').textContent = email;
 
   // Carregar rotas agendadas em tempo real
-  fpLoadScheduledRoutes(uid);
+  fpLoadScheduledRoutes(uid, 'fpScheduledList');
 };
 
-// Voltar para lista de motoristas
+// Abrir detalhe de um motorista (No Modal)
+window.fmOpenDriverDetail = function(uid, name, email) {
+  window._fpCurrentDriverUid = uid;
+  window._fpCurrentDriverName = name;
+
+  document.getElementById('fmDriversView').style.display = 'none';
+  const detail = document.getElementById('fmDriverDetail');
+  detail.style.display = 'flex';
+
+  document.getElementById('fmDetailName').textContent = '📋 ' + escapeHTML(name);
+  document.getElementById('fmDetailEmail').textContent = email;
+
+  // Carregar rotas agendadas em tempo real
+  fpLoadScheduledRoutes(uid, 'fmScheduledList');
+};
+
+// Voltar para lista de motoristas (No Painel Lateral)
 window.fpBackToDrivers = function() {
   if (window._fpScheduledRoutesUnsub) {
     window._fpScheduledRoutesUnsub();
@@ -3115,10 +3155,24 @@ window.fpBackToDrivers = function() {
   renderFleetDriverCards(); // Atualizar contadores
 };
 
+// Voltar para lista de motoristas (No Modal)
+window.fmBackToDrivers = function() {
+  if (window._fmScheduledRoutesUnsub) {
+    window._fmScheduledRoutesUnsub();
+    window._fmScheduledRoutesUnsub = null;
+  }
+  document.getElementById('fmDriverDetail').style.display = 'none';
+  document.getElementById('fmDriversView').style.display = 'flex';
+  loadFleetDrivers(); // Atualizar lista
+};
+
 // Carregar rotas agendadas do Firestore (tempo real)
-function fpLoadScheduledRoutes(driverUid) {
-  if (window._fpScheduledRoutesUnsub) {
-    window._fpScheduledRoutesUnsub();
+function fpLoadScheduledRoutes(driverUid, containerId = 'fpScheduledList') {
+  // Usamos unsubs diferentes para panel e modal para evitar conflitos
+  const unsubKey = containerId === 'fmScheduledList' ? '_fmScheduledRoutesUnsub' : '_fpScheduledRoutesUnsub';
+
+  if (window[unsubKey]) {
+    window[unsubKey]();
   }
 
   const q = query(
@@ -3126,8 +3180,8 @@ function fpLoadScheduledRoutes(driverUid) {
     orderBy("scheduledDate", "asc")
   );
 
-  window._fpScheduledRoutesUnsub = onSnapshot(q, (snapshot) => {
-    const list = document.getElementById('fpScheduledList');
+  window[unsubKey] = onSnapshot(q, (snapshot) => {
+    const list = document.getElementById(containerId);
     if (!list) return;
     list.innerHTML = '';
 
@@ -4150,8 +4204,13 @@ async function loadFleetDrivers() {
       const canManage = !isMe && (window.userRole === 'admin' || (window.userRole === 'co-admin' && u.role === 'driver'));
 
       const card = document.createElement('div');
-      card.style.cssText = "background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px;";
+      card.style.cssText = "background: var(--pr-surface); border: 1px solid var(--pr-border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: transform 0.2s;";
+      card.onmouseenter = () => card.style.transform = "translateY(-2px)";
+      card.onmouseleave = () => card.style.transform = "translateY(0)";
       
+      // Ao clicar no card, abre os detalhes (exceto se clicar em inputs/buttons)
+      card.onclick = () => window.fmOpenDriverDetail(uid, displayName, u.email || '');
+
       card.innerHTML = `
         <div style="display: flex; align-items: center; gap: 12px;">
           <div id="fleet_avatar_${uid}" style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--pr-blue-mid), var(--pr-blue-dark)); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; font-weight: 700; flex-shrink: 0;">
@@ -4165,7 +4224,7 @@ async function loadFleetDrivers() {
             ${statusHtml}
           </div>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px;" onclick="event.stopPropagation()">
           <label style="font-size:10px; font-weight:700; color:var(--pr-text-muted); white-space:nowrap;">Nome Completo:</label>
           <input type="text" value="${escapeHTML(u.nome || '')}" placeholder="Ex: João da Silva" 
             style="flex:1; border:1px solid var(--pr-border); border-radius:6px; padding:5px 8px; font-size:11px; background:var(--pr-bg); color:var(--pr-text); outline:none;"
@@ -4173,16 +4232,16 @@ async function loadFleetDrivers() {
           <button onclick="event.stopPropagation(); window.saveDriverName('${uid}', this)" 
             style="border:none; background:#1A6BAF; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">Salvar</button>
         </div>
-        <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-top:4px;" onclick="event.stopPropagation()">
           ${canManage ? `
             ${unlinkBtnHtml}
             ${window.userRole === 'admin' ? `
               ${u.role === 'driver' 
-                ? `<button onclick="event.stopPropagation(); window.promoteToCoAdmin('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#1A6BAF; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer;">Promover</button>`
-                : `<button onclick="event.stopPropagation(); window.demoteToDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#95a5a6; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer;">Rebaixar</button>`
+                ? `<button onclick="window.promoteToCoAdmin('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#1A6BAF; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer;">Promover</button>`
+                : `<button onclick="window.demoteToDriver('${uid}', '${escapeHTML(displayName)}')" style="border:none; background:#95a5a6; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer;">Rebaixar</button>`
               }
             ` : ''}
-            <button onclick="event.stopPropagation(); window.deleteDriver('${uid}', '${escapeHTML(displayName)}')" 
+            <button onclick="window.deleteDriver('${uid}', '${escapeHTML(displayName)}')" 
               style="border:none; background:#c0392b; color:#fff; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap; margin-left:auto;">Excluir</button>
           ` : '<div style="font-size:10px; color:var(--pr-text-muted); font-style:italic;">Sem permissão para gerenciar este perfil</div>'}
         </div>

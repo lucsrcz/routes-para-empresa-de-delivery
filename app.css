@@ -905,32 +905,46 @@ body {
 .fleet-panel-grid::-webkit-scrollbar { width: 4px; }
 .fleet-panel-grid::-webkit-scrollbar-thumb { background: var(--pr-blue-pale); border-radius: 4px; }
 .fleet-driver-card {
-  width: 260px; flex: 0 0 auto;
-  background: var(--pr-surface); border-radius: 12px;
-  border: 1px solid var(--pr-border); overflow: hidden;
-  cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  width: 280px; flex: 0 0 auto;
+  background: var(--pr-surface); 
+  border-radius: 16px;
+  border: 1px solid var(--pr-border); 
+  overflow: hidden;
+  cursor: pointer; 
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
 }
-.fleet-driver-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(13,72,123,0.12); }
-.fleet-driver-card:active { transform: scale(0.97); }
+.fleet-driver-card:hover { 
+  transform: translateY(-5px); 
+  box-shadow: 0 12px 30px rgba(13,72,123,0.15);
+  border-color: var(--pr-blue-pale);
+}
+.fleet-driver-card:active { transform: scale(0.98); }
 
 /* Route detail strip at top of driver card */
 .fdc-route-detail {
-  display: flex; align-items: center; justify-content: center; gap: 0;
-  background: linear-gradient(135deg, var(--pr-blue-dark), #1a6baf);
-  padding: 10px 12px; color: #fff;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: linear-gradient(135deg, var(--pr-blue-dark) 0%, var(--pr-blue-mid) 100%);
+  padding: 12px 16px; color: #fff;
+  position: relative;
+}
+.fdc-route-detail::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+  height: 1px; background: rgba(255,255,255,0.1);
 }
 .fdc-route-detail.fdc-rd-empty {
   background: var(--pr-bg); color: var(--pr-text-muted);
-  font-size: 10px; font-weight: 600; padding: 12px;
+  font-size: 11px; font-weight: 700; padding: 15px;
   justify-content: center;
 }
 .fdc-rd-item {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
 }
-.fdc-rd-val { font-size: 15px; font-weight: 800; line-height: 1; }
-.fdc-rd-label { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.75; }
-.fdc-rd-divider { width: 1px; height: 24px; background: rgba(255,255,255,0.2); margin: 0 4px; }
+.fdc-rd-val { font-size: 18px; font-weight: 800; line-height: 1; text-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+.fdc-rd-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.8; }
+.fdc-rd-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.15); margin: 0 8px; }
 .fdc-rd-badges { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center; }
 .fdc-count-badge {
   display: inline-flex; align-items: center; gap: 2px;
@@ -939,14 +953,16 @@ body {
   line-height: 1.3;
 }
 
-.fdc-content { padding: 10px 12px; }
+.fdc-content { padding: 14px 16px; flex: 1; display: flex; flex-direction: column; }
 .fdc-name {
-  font-size: 13px; font-weight: 700; color: var(--pr-text);
-  margin: 0 0 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 14px; font-weight: 700; color: var(--pr-text);
+  margin: 0 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  letter-spacing: -0.01em;
 }
 .fdc-email {
-  font-size: 10px; color: var(--pr-text-muted); margin: 0;
+  font-size: 11px; color: var(--pr-text-muted); margin: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 500;
 }
 .fdc-footer {
   display: flex; align-items: center; justify-content: space-between;
@@ -954,11 +970,13 @@ body {
 }
 .fdc-route-info { font-size: 9px; font-weight: 600; color: var(--pr-blue-mid); }
 .fdc-avatar {
-  width: 28px; height: 28px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--pr-blue-mid), var(--pr-blue-dark));
-  color: #fff; font-size: 11px; font-weight: 700;
+  width: 36px; height: 36px; border-radius: 12px;
+  background: linear-gradient(135deg, var(--pr-blue-mid) 0%, var(--pr-blue-dark) 100%);
+  color: #fff; font-size: 14px; font-weight: 800;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(15,62,111,0.2);
+  border: 1.5px solid rgba(255,255,255,0.1);
 }
 
 /* Status pill (small inline badge in footer) */

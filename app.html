@@ -599,7 +599,7 @@
     <div class="modal-desc" style="margin-bottom: 15px;">Gerencie e convide motoristas para sua equipe</div>
     
     <!-- View 1: Lista de Motoristas -->
-    <div id="fpDriversView" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+    <div id="fmDriversView" style="display:flex; flex-direction:column; flex:1; min-height:0;">
       <!-- Invite Section (Driver) -->
       <div style="background: linear-gradient(135deg, rgba(39,174,96,0.08), rgba(30,132,73,0.12)); border: 1px solid rgba(39,174,96,0.2); border-radius: 12px; padding: 15px; margin-bottom: 15px; flex-shrink:0;">
         <div class="text-dark-auto" style="font-size: 13px; font-weight: 700; margin-bottom: 5px;">🚚 Convite para Motoristas</div>
@@ -640,16 +640,16 @@
     </div>
 
     <!-- View 2: Detalhe do Motorista e Rotas Agendadas -->
-    <div id="fpDriverDetail" style="display:none; flex-direction:column; flex:1; min-height:0;">
+    <div id="fmDriverDetail" style="display:none; flex-direction:column; flex:1; min-height:0;">
       <div style="background:var(--pr-surface); border-radius:8px; padding:15px; margin-bottom:15px; border:1px solid var(--pr-border); flex-shrink:0; position:relative;">
-        <button onclick="event.stopPropagation(); window.fpBackToDrivers()" style="position:absolute; right:15px; top:15px; background:var(--pr-bg); border:1px solid var(--pr-border); border-radius:6px; padding:4px 8px; font-size:11px; cursor:pointer;" title="Voltar aos motoristas">❌ Voltar</button>
-        <div id="fpDetailName" style="font-size:16px; font-weight:800; color:var(--pr-text);">Motorista</div>
-        <div id="fpDetailEmail" style="font-size:11px; color:var(--pr-text-muted); margin-top:2px;">email@motorista.com</div>
+        <button onclick="event.stopPropagation(); window.fmBackToDrivers()" style="position:absolute; right:15px; top:15px; background:var(--pr-bg); border:1px solid var(--pr-border); border-radius:6px; padding:4px 8px; font-size:11px; cursor:pointer;" title="Voltar aos motoristas">❌ Voltar</button>
+        <div id="fmDetailName" style="font-size:16px; font-weight:800; color:var(--pr-text);">Motorista</div>
+        <div id="fmDetailEmail" style="font-size:11px; color:var(--pr-text-muted); margin-top:2px;">email@motorista.com</div>
         <button class="mbtn mbtn-save" onclick="event.stopPropagation(); window.fpOpenScheduleModal()" style="width:100%; background:var(--pr-blue-dark); padding:10px 0; margin-top:15px; font-size:13px; display:flex; align-items:center; justify-content:center; gap:8px;"><span>➕</span> Agendar Nova Rota</button>
       </div>
       
       <div class="text-dark-auto" style="font-size:12px; font-weight:700; margin-bottom:8px; flex-shrink:0;">📅 Rotas Agendadas</div>
-      <div id="fpScheduledList" style="flex:1; overflow-y:auto; background:var(--pr-bg); border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:100px;">
+      <div id="fmScheduledList" style="flex:1; overflow-y:auto; background:var(--pr-bg); border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:100px;">
         <p style="text-align:center; font-size:12px; color:var(--pr-text-muted);">Carregando...</p>
       </div>
     </div>
