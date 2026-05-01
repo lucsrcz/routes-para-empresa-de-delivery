@@ -2724,6 +2724,9 @@ window.openDriverDailyRouteModal = function() {
   // Render points
   window.renderDriverDailyRoutePoints();
   
+  // Pre-compute the Maps URL and set it on the <a> tag so the tap is a native navigation
+  window.updateStartRouteHref();
+
   modal.classList.add('active');
 };
 
@@ -2831,8 +2834,54 @@ window.renderDriverDailyRoutePoints = function() {
     `;
     container.appendChild(item);
   });
+  // Keep the <a> href in sync after every render (reorder/remove)
+  window.updateStartRouteHref();
 };
 
+// Computa a URL do Maps com base na sequência atual e seta no href do <a> "Iniciar Rota".
+// Assim o toque do motorista é uma navegação nativa do browser (idêntico ao botão "Abrir Maps"),
+// abrindo o app do Google Maps diretamente sem abas vazias.
+window.updateStartRouteHref = function() {
+  const link = document.getElementById('startRouteLink');
+  if (!link) return;
+
+  const points = window.tempDriverRouteSequence;
+  if (!points || points.length === 0) {
+    link.href = '#';
+    return;
+  }
+
+  // Detectar se o motorista reordenou as paradas
+  const originalPoints = (window.activeRouteData && window.activeRouteData.points) || [];
+  let wasReordered = originalPoints.length !== points.length;
+  if (!wasReordered) {
+    for (let i = 0; i < originalPoints.length; i++) {
+      const origName = originalPoints[i].name || originalPoints[i].input || '';
+      const currName = points[i].name || points[i].input || '';
+      if (origName !== currName) {
+        wasReordered = true;
+        break;
+      }
+    }
+  }
+
+  let mapsUrl;
+  if (!wasReordered && window.activeRouteData && window.activeRouteData.mapsUrl) {
+    mapsUrl = window.activeRouteData.mapsUrl;
+  } else {
+    const lastP = points[points.length - 1];
+    mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
+    if (points.length > 1) {
+      const wpUrls = points.slice(0, -1).map(p => window.formatMapsLocation(p));
+      mapsUrl += `&waypoints=${wpUrls.join('|')}`;
+    }
+  }
+
+  link.href = mapsUrl;
+};
+
+// Side-effects apenas: atualiza status no Firestore e fecha o modal.
+// A navegação para o Maps é feita nativamente pelo <a href> (o browser já abriu o link).
 window.startDriverDailyRoute = function() {
   if (!window.activeRouteId) {
     showToast("Erro: ID da rota não encontrado.", "error");
@@ -2843,53 +2892,12 @@ window.startDriverDailyRoute = function() {
     return;
   }
 
-  // 1. Detectar se o motorista reordenou as paradas
-  const originalPoints = (window.activeRouteData && window.activeRouteData.points) || [];
-  const currentPoints = window.tempDriverRouteSequence;
-
-  let wasReordered = originalPoints.length !== currentPoints.length;
-  if (!wasReordered) {
-    for (let i = 0; i < originalPoints.length; i++) {
-      const origName = originalPoints[i].name || originalPoints[i].input || '';
-      const currName = currentPoints[i].name || currentPoints[i].input || '';
-      if (origName !== currName) {
-        wasReordered = true;
-        break;
-      }
-    }
-  }
-
-  let mapsUrl;
-
-  if (!wasReordered && window.activeRouteData && window.activeRouteData.mapsUrl) {
-    // Não reordenou: usar a URL já salva pelo admin (completa e correta)
-    mapsUrl = window.activeRouteData.mapsUrl;
-  } else {
-    // Reordenou: reconstruir a URL com a nova sequência, usando '|' como separador
-    const lastP = currentPoints[currentPoints.length - 1];
-    mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
-    if (currentPoints.length > 1) {
-      const wpUrls = currentPoints.slice(0, -1).map(p => window.formatMapsLocation(p));
-      mapsUrl += `&waypoints=${wpUrls.join('|')}`;
-    }
-  }
-
-  // 2. Mark route as "Em Rota" in Firestore and sync with Admin
+  // Mark route as "Em Rota" in Firestore
   window.updateRouteStatus(window.activeRouteId, "Em Rota").catch(e => console.warn("Falha ao sincronizar status", e));
 
-  // 3. Open URL
-  // Utilizando comportamento de <a> tag para simular o "Abrir Maps" e evitar bloqueio/página vazia no mobile
-  const a = document.createElement('a');
-  a.href = mapsUrl;
-  a.target = '_blank';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-
-  // 4. Reset UI state without a hard reload that could cancel the navigation intent
+  // Close modal after a short delay to let the native navigation happen
   setTimeout(() => {
     closeDriverDailyRouteModal();
-    // Opcional: Se quiser resetar algum estado específico, faça aqui em vez de reload()
   }, 500);
 };
 
