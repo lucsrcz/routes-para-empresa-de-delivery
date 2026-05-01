@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 import CONFIG from "./config.js";
 
@@ -8,6 +8,49 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 // Admin role can only be assigned manually via Firebase Console.
+
+// ── Process Google Redirect Result (Mobile) ──
+getRedirectResult(auth).then(async (result) => {
+  if (result) {
+    const uid = result.user.uid;
+    const userRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      const isReg = sessionStorage.getItem('isRegisterMode') === 'true';
+      const sRole = sessionStorage.getItem('selectedRole');
+      const sNome = sessionStorage.getItem('nomeInput') || result.user.displayName || '';
+      const sInvite = sessionStorage.getItem('inviteCode') || '';
+
+      if (isReg && sRole === 'driver') {
+         if (sInvite) {
+           const inviteRef = doc(db, "invites", sInvite);
+           const inviteSnap = await getDoc(inviteRef);
+           if (inviteSnap.exists() && !inviteSnap.data().usado) {
+             await setDoc(userRef, { role: 'driver', nome: sNome, email: result.user.email, adminId: inviteSnap.data().adminId, createdAt: serverTimestamp() });
+             await updateDoc(inviteRef, { usado: true });
+           } else {
+             await setDoc(userRef, { role: 'driver', nome: sNome, email: result.user.email, createdAt: serverTimestamp() });
+           }
+         } else {
+           await setDoc(userRef, { role: 'driver', nome: sNome, email: result.user.email, createdAt: serverTimestamp() });
+         }
+      } else {
+         await setDoc(userRef, { role: 'pending', nome: sNome, email: result.user.email, createdAt: serverTimestamp() });
+      }
+    }
+    
+    // Clear session storage
+    sessionStorage.removeItem('googleLoginPending');
+    sessionStorage.removeItem('isRegisterMode');
+    sessionStorage.removeItem('selectedRole');
+    sessionStorage.removeItem('inviteCode');
+    sessionStorage.removeItem('nomeInput');
+  }
+}).catch((error) => {
+  console.error("Erro no redirect result do Google:", error);
+  showToast("Falha ao concluir login com Google. Tente novamente.");
+});
 
 onAuthStateChanged(auth, async (user) => {
   if (user) {
@@ -242,6 +285,19 @@ window.handleGoogleLogin = async function(btn) {
   } catch(e) { console.warn('Erro ao definir persistência (Google):', e); }
 
   try {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      sessionStorage.setItem('googleLoginPending', 'true');
+      sessionStorage.setItem('isRegisterMode', isRegisterMode);
+      sessionStorage.setItem('selectedRole', selectedRole || '');
+      sessionStorage.setItem('inviteCode', document.getElementById('inviteCodeInput')?.value.trim() || '');
+      sessionStorage.setItem('nomeInput', document.getElementById('nomeinput')?.value.trim() || '');
+      
+      await signInWithRedirect(auth, provider);
+      return; // Execution stops here due to redirect
+    }
+
     const result = await signInWithPopup(auth, provider);
     
     // Check if user document exists — if not (first time Google login), prompt for role
