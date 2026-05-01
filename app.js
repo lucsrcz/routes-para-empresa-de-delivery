@@ -2878,8 +2878,13 @@ window.startDriverDailyRoute = function() {
   window.updateRouteStatus(window.activeRouteId, "Em Rota").catch(e => console.warn("Falha ao sincronizar status", e));
 
   // 3. Open URL
-  // Sempre usar open() — o sistema operacional redireciona para o app nativo
-  window.open(mapsUrl, '_blank');
+  // Utilizando comportamento de <a> tag para simular o "Abrir Maps" e evitar bloqueio/página vazia no mobile
+  const a = document.createElement('a');
+  a.href = mapsUrl;
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 
   // 4. Reset UI state without a hard reload that could cancel the navigation intent
   setTimeout(() => {
