@@ -2532,6 +2532,57 @@ window.renderBuilderSequence = function() {
 };
 
 
+// ── Bridge API for auto-route.js ──
+window.getAutoRouteLocations = function() {
+  return allLocations;
+};
+
+/**
+ * Resolve coordenadas de um link/endereço.
+ * 1) Tenta extração client-side (regex em URLs do Google Maps)
+ * 2) Fallback: chama o backend /api/resolve
+ * Retorna { lat, lng, name } ou null se não conseguir resolver.
+ */
+window.resolveLocationCoords = async function(input) {
+  if (!input) return null;
+
+  // 1. Client-side extraction
+  const clientCoords = window.extractCoordsFromUrl(input);
+  if (clientCoords) {
+    return { lat: clientCoords.lat, lng: clientCoords.lng, name: null };
+  }
+
+  // 2. Backend resolution
+  if (input.includes('http')) {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const res = await fetch(`${CONFIG.apiUrl}/api/resolve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ url: input })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.lat && data.lng) {
+          return { lat: data.lat, lng: data.lng, name: data.name || null };
+        }
+      }
+    } catch (e) {
+      console.warn("Auto-route: falha ao resolver link via backend", e);
+    }
+  }
+
+  return null;
+};
+
+window.setBuilderPointsAndGenerate = function(points) {
+  builderSelectedPoints = points;
+  window.generateManualRoute();
+};
+
 window.generateManualRoute = async function() {
   const genBtn = document.getElementById('mainGenerateBtn');
   if (genBtn) {
@@ -2882,7 +2933,7 @@ window.updateStartRouteHref = function() {
 
 // Side-effects apenas: atualiza status no Firestore e fecha o modal.
 // A navegação para o Maps é feita nativamente pelo <a href> (o browser já abriu o link).
-window.startDriverDailyRoute = function() {
+window.startDriverDailyRoute = async function() {
   if (!window.activeRouteId) {
     showToast("Erro: ID da rota não encontrado.", "error");
     return;
@@ -2892,13 +2943,11 @@ window.startDriverDailyRoute = function() {
     return;
   }
 
-  // Mark route as "Em Rota" in Firestore
-  window.updateRouteStatus(window.activeRouteId, "Em Rota").catch(e => console.warn("Falha ao sincronizar status", e));
-
-  // Close modal after a short delay to let the native navigation happen
-  setTimeout(() => {
-    closeDriverDailyRouteModal();
-  }, 500);
+  try {
+    await window.updateRouteStatus(window.activeRouteId, "Em Rota", { startedAt: serverTimestamp() });
+  } catch(e) {
+    console.warn("Erro ao iniciar rota:", e);
+  }
 };
 
 // ══════════════════════════════════════════════════════════

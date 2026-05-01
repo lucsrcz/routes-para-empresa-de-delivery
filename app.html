@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
 <title>Routes — Prodesivo</title>
 <link rel="stylesheet" href="app.css?v=6"/>
+<link rel="stylesheet" href="auto-route.css?v=2"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -109,7 +110,7 @@
 
 
 
-        <div class="acard c1" onclick="showToast('A Rota Inteligente Otimizada será disponibilizada em breve!', 'info')">
+        <div class="acard c1" onclick="window.openAutoRouteModal()">
           <div class="acard-icon" style="color:#fff; background: rgba(255,255,255,0.16);">⟳</div>
           <div class="acard-body">
             <div class="acard-title">Criar Rota Automática</div>
@@ -587,7 +588,7 @@
 
     <div class="modal-actions" style="margin-top:auto; display:flex; gap: 10px;">
       <button class="mbtn mbtn-cancel" style="flex:1;" onclick="event.stopPropagation(); closeDriverDailyRouteModal()">Cancelar</button>
-      <a id="startRouteLink" href="#" target="_blank" class="mbtn mbtn-save" style="flex:1; background:linear-gradient(135deg,#0F3E6F,#1A79C4); text-decoration:none; text-align:center; display:block;" onclick="event.stopPropagation(); startDriverDailyRoute()">▶ Iniciar Rota (Ir)</a>
+      <a id="startRouteLink" href="#" target="_blank" class="mbtn mbtn-save" style="flex:1; background:linear-gradient(135deg,#0F3E6F,#1A79C4); text-decoration:none; text-align:center; display:block;" onclick="startDriverDailyRoute()">▶ Iniciar Rota (Ir)</a>
     </div>
   </div>
 </div>
@@ -728,7 +729,7 @@
   <div class="modal-content" style="max-width: 320px; padding: 25px;" onclick="event.stopPropagation()">
     <div class="modal-title" style="text-align: center; margin-bottom: 20px;">Tipo de Rota</div>
     <div style="display: flex; flex-direction: column; gap: 15px;">
-      <div class="acard c1" style="margin: 0;" onclick="closeRouteChoiceModal(); showToast('Funcionalidade de Rota Inteligente Otimizada (Google AI) será disponibilizada na próxima atualização!', 'info')">
+      <div class="acard c1" style="margin: 0;" onclick="closeRouteChoiceModal(); window.openAutoRouteModal()">
         <div class="acard-icon">⟳</div>
         <div class="acard-content">
           <div class="acard-title">Automática</div>
@@ -1630,6 +1631,105 @@
 
 <!-- Scripts -->
 
-<script type="module" src="app.js?v=22"></script>
+<!-- AUTO ROUTE MODAL -->
+<div class="modal-overlay" id="autoRouteModal" onclick="window.closeAutoRouteModal()">
+  <div class="ar-modal-card" onclick="event.stopPropagation()">
+    <!-- Header -->
+    <div class="ar-header">
+      <div class="ar-header-icon">🧠</div>
+      <div class="ar-header-text">
+        <h3>Rota Automática Inteligente</h3>
+        <p>Otimização por proximidade (Nearest Neighbor)</p>
+      </div>
+      <button class="ar-close-btn" onclick="window.closeAutoRouteModal()">✕</button>
+    </div>
+
+    <!-- Body -->
+    <div class="ar-body">
+      <!-- Driver Select (admin only) -->
+      <div id="arDriverSection" class="ar-driver-section">
+        <div class="ar-section-label">👤 Enviar rota para</div>
+        <select id="arDriverSelect" class="ar-driver-select"></select>
+      </div>
+
+      <!-- How it works -->
+      <div class="ar-section-label">Como funciona</div>
+      <div class="ar-steps">
+        <div class="ar-step">
+          <div class="ar-step-num">1</div>
+          <div class="ar-step-text">Selecione os locais</div>
+        </div>
+        <div class="ar-step">
+          <div class="ar-step-num">2</div>
+          <div class="ar-step-text">Marque ⭐ prioridades</div>
+        </div>
+        <div class="ar-step">
+          <div class="ar-step-num">3</div>
+          <div class="ar-step-text">Clique em Calcular</div>
+        </div>
+        <div class="ar-step">
+          <div class="ar-step-num">4</div>
+          <div class="ar-step-text">Confirme a rota</div>
+        </div>
+      </div>
+
+      <!-- Location header -->
+      <div class="ar-loc-header">
+        <div class="ar-section-label" style="margin-bottom:0">📍 Locais disponíveis</div>
+        <div class="ar-select-actions">
+          <button class="ar-select-btn" onclick="window._arSelectAll()">Todos</button>
+          <button class="ar-select-btn" onclick="window._arDeselectAll()">Nenhum</button>
+        </div>
+        <div id="arLocCount" class="ar-loc-count">0 de 0</div>
+      </div>
+
+      <!-- Search -->
+      <div class="ar-search-wrap">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="arSearchInput" class="ar-search-input" placeholder="Buscar local..." oninput="window._arFilterLocs()" />
+      </div>
+
+      <!-- Location list -->
+      <div id="arLocList" class="ar-loc-list"></div>
+
+      <!-- Status bar -->
+      <div id="arStatusBar" class="ar-status-bar">
+        <div id="arSpinner" class="ar-spinner"></div>
+        <div id="arStatusCheck" class="ar-status-check" style="display:none">✓</div>
+        <div id="arStatusText" class="ar-status-text"></div>
+      </div>
+
+      <!-- Result -->
+      <div id="arResultSection" class="ar-result-section">
+        <div class="ar-section-label">📊 Resultado da Otimização</div>
+        <div class="ar-result-summary">
+          <div class="ar-result-stat">
+            <div id="arStatKm" class="ar-stat-value">0</div>
+            <div class="ar-stat-label">km estimados</div>
+          </div>
+          <div class="ar-result-stat">
+            <div id="arStatStops" class="ar-stat-value">0</div>
+            <div class="ar-stat-label">paradas</div>
+          </div>
+          <div class="ar-result-stat">
+            <div id="arStatPriority" class="ar-stat-value">0</div>
+            <div class="ar-stat-label">prioridades</div>
+          </div>
+        </div>
+        <div id="arResultList" class="ar-result-list"></div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="ar-footer">
+      <button class="ar-btn ar-btn-cancel" onclick="window.closeAutoRouteModal()">Cancelar</button>
+      <button id="arCalcBtn" class="ar-btn ar-btn-primary" onclick="window._arCalculate()">🧠 Calcular Melhor Rota</button>
+      <button id="arConfirmBtn" class="ar-btn ar-btn-confirm" style="display:none" onclick="window._arConfirmRoute()">✓ Confirmar e Enviar</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="app.js?v=23"></script>
+<script src="auto-route.js?v=2" defer></script>
 </body>
 </html>
