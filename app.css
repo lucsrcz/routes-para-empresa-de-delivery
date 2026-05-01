@@ -81,13 +81,13 @@ body {
   background: var(--pr-bg);
   color: var(--pr-text);
   overflow: hidden;
-  height: 100vh; width: 100vw;
+  height: 100dvh; width: 100vw;
   -webkit-tap-highlight-color: transparent;
 }
 
 .shell{
   display:flex;flex-direction:column;
-  height:100vh;min-height:600px;
+  height:100dvh;min-height:600px;
   overflow:hidden;
 }
 
@@ -309,7 +309,7 @@ body {
 }
 
 /* LOCATION LIST */
-.loc-list{padding:0 14px 10px;display:flex;flex-direction:column;gap:5px;overflow-y:auto;max-height:calc(100vh - 340px);}
+.loc-list{padding:0 14px 10px;display:flex;flex-direction:column;gap:5px;overflow-y:auto;max-height:calc(100dvh - 340px);}
 .loc-list::-webkit-scrollbar{width:3px;}
 .loc-list::-webkit-scrollbar-thumb{background:var(--pr-blue-pale);border-radius:4px;}
 .loc-item{
@@ -1551,7 +1551,7 @@ body {
   .ahub-container {
     flex-direction: column;
     width: 100vw;
-    height: 100vh;
+    height: 100dvh;
     max-width: 100%;
     max-height: 100%;
     border-radius: 0;
@@ -2854,3 +2854,17 @@ details > summary > span:last-child { display: inline-block; transition: transfo
     .fh-stats-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* Fix for iOS auto-zoom on inputs */
+@media screen and (max-width: 768px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+/* Fix for safe areas (Notch / Dynamic Island) */
+body, .page, .app-layout {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}

@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, limit, deleteDoc, serverTimestamp, arrayUnion, arrayRemove, where, getDocs, writeBatch, increment } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, limit, deleteDoc, serverTimestamp, where, getDocs, writeBatch, increment } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
 import { getDatabase, ref as rtdbRef, set as rtdbSet, onValue, off, remove as rtdbRemove } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-storage.js";
 import CONFIG from "./config.js";
@@ -64,10 +64,12 @@ window.showConfirm = function(message, title = "Confirmação", icon = "❓") {
     msgEl.textContent = message;
     titleEl.textContent = title;
     iconEl.textContent = icon;
-
+    
+    modal.style.pointerEvents = 'auto'; // Reset events when showing
     modal.classList.add('active');
 
     const cleanup = (result) => {
+      modal.style.pointerEvents = 'none'; // Prevent interactions during closing animation
       modal.classList.remove('active');
       cancelBtn.onclick = null;
       confirmBtn.onclick = null;
@@ -201,10 +203,12 @@ window.toggleAppTheme = function() {
   }
 })();
 
-navigator.geolocation.getCurrentPosition(async p => {
-  userCoords = { lat: p.coords.latitude, lng: p.coords.longitude };
-  updateWeather(userCoords.lat, userCoords.lng);
-}, () => console.log("Sem acesso ao GPS"));
+if ('geolocation' in navigator) {
+  navigator.geolocation.getCurrentPosition(async p => {
+    userCoords = { lat: p.coords.latitude, lng: p.coords.longitude };
+    updateWeather(userCoords.lat, userCoords.lng);
+  }, () => console.log("Sem acesso ao GPS"));
+}
 
 async function updateWeather(lat, lon) {
   try {
@@ -566,6 +570,7 @@ async function refreshBuilderDriverList() {
         const label = document.createElement('label');
         label.className = 'bdr-item';
         label.dataset.uid = docSnap.id;
+        label.dataset.name = displayName;
         
         label.innerHTML = `
           <input type="radio" name="driverRadio" value="${docSnap.id}" class="bdr-radio"/>
@@ -1022,13 +1027,20 @@ window.confirmDelivery = async function() {
 window.calculateCommission = async function(weight, value) {
   if (!window.companyId) return 0;
   try {
-    const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) return 0;
-
     let rules = [];
-    snapshot.forEach(docSnap => rules.push(docSnap.data()));
-    
+    const now = Date.now();
+    if (window._commissionRulesCache && (now - window._commissionRulesLastFetch < 60000)) {
+      rules = window._commissionRulesCache;
+    } else {
+      const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
+      const snapshot = await getDocs(q);
+      snapshot.forEach(docSnap => rules.push(docSnap.data()));
+      window._commissionRulesCache = rules;
+      window._commissionRulesLastFetch = now;
+    }
+
+    if (rules.length === 0) return 0;
+
     // 1. Ordena as faixas por peso mínimo (Sênior approach: Garante consistência)
     rules.sort((a, b) => (a.min || 0) - (b.min || 0));
 
@@ -1060,12 +1072,20 @@ async function calculateCommissionValue(weight) {
   // O valor real será computado durante a finalização
   if (!window.companyId) return 0;
   try {
-    const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) return 0;
-
     let rules = [];
-    snapshot.forEach(docSnap => rules.push(docSnap.data()));
+    const now = Date.now();
+    if (window._commissionRulesCache && (now - window._commissionRulesLastFetch < 60000)) {
+      rules = window._commissionRulesCache;
+    } else {
+      const q = query(collection(db, "commission_rules"), where("companyId", "==", window.companyId));
+      const snapshot = await getDocs(q);
+      snapshot.forEach(docSnap => rules.push(docSnap.data()));
+      window._commissionRulesCache = rules;
+      window._commissionRulesLastFetch = now;
+    }
+
+    if (rules.length === 0) return 0;
+
     rules.sort((a, b) => (a.min || 0) - (b.min || 0));
 
     const activeRule = rules.find(r => {
@@ -2018,9 +2038,15 @@ window.saveLocation = async function() {
 function loadLocations() {
   if(!currentUser) return;
   
+  // Cancelar listeners anteriores para evitar acúmulo (memory leak fix)
+  if (window._locsUnsubs && window._locsUnsubs.length > 0) {
+    window._locsUnsubs.forEach(unsub => { try { unsub(); } catch(e) {} });
+  }
+  window._locsUnsubs = [];
+
   if (window.userRole === "admin") {
     const q = query(collection(db, "users", window.companyId, "locations"), orderBy("name", "asc"));
-    onSnapshot(q, (snapshot) => {
+    window._locsUnsubs.push(onSnapshot(q, (snapshot) => {
       allLocations = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
@@ -2033,10 +2059,10 @@ function loadLocations() {
       if(document.getElementById('builderModal') && document.getElementById('builderModal').classList.contains('active')) {
          renderBuilderLocations();
       }
-    }, (error) => { console.error("Erro Locations Admin:", error); });
+    }, (error) => { console.error("Erro Locations Admin:", error); }));
 
     const qRecent = query(collection(db, "users", currentUser.uid, "locations"), orderBy("createdAt", "desc"), limit(5));
-    onSnapshot(qRecent, (snapshot) => {
+    window._locsUnsubs.push(onSnapshot(qRecent, (snapshot) => {
       const rList = document.getElementById('recentList');
       if (!rList) return;
       rList.innerHTML = '';
@@ -2065,7 +2091,7 @@ function loadLocations() {
         `;
         rList.appendChild(item);
       });
-    });
+    }));
   } else {
     // Driver Role: Dual Listener (Own + Admin's)
     let adminLocs = [];
@@ -2080,7 +2106,7 @@ function loadLocations() {
 
     if (window.adminId) {
       const qAdmin = query(collection(db, "users", window.adminId, "locations"), orderBy("name", "asc"));
-      onSnapshot(qAdmin, (snapshot) => {
+      window._locsUnsubs.push(onSnapshot(qAdmin, (snapshot) => {
         adminLocs = [];
         snapshot.forEach(docSnap => {
           const d = docSnap.data(); d.id = docSnap.id; d.isOwn = false;
@@ -2089,11 +2115,11 @@ function loadLocations() {
         mergeLocations();
       }, (error) => {
         console.error("Erro leitura Admin locations para o Driver:", error);
-      });
+      }));
     }
 
     const qDriver = query(collection(db, "users", currentUser.uid, "locations"), orderBy("name", "asc"));
-    onSnapshot(qDriver, (snapshot) => {
+    window._locsUnsubs.push(onSnapshot(qDriver, (snapshot) => {
       driverLocs = [];
       snapshot.forEach(docSnap => {
         const d = docSnap.data(); d.id = docSnap.id; d.isOwn = true;
@@ -2102,11 +2128,11 @@ function loadLocations() {
       mergeLocations();
     }, (error) => {
       console.error("Erro leitura das próprias locations (Driver):", error);
-    });
+    }));
   }
   // Listener para sincronizar a última rota (Dashboard)
   const qHistory = query(collection(db, "users", currentUser.uid, "history"), orderBy("createdAt", "desc"), limit(1));
-  onSnapshot(qHistory, (snapshot) => {
+  window._locsUnsubs.push(onSnapshot(qHistory, (snapshot) => {
     if(!snapshot.empty) {
       window.activeRouteId = snapshot.docs[0].id;
       const data = snapshot.docs[0].data();
@@ -2135,7 +2161,7 @@ function loadLocations() {
       
       const rL = document.getElementById('routeStopList');
       if(rL && data.points) {
-        const names = data.points.map((p, i) => `${i+1}. ${p.name || 'Local'}`).join('<br>');
+        const names = data.points.map((p, i) => `${i+1}. ${escapeHTML(p.name || 'Local')}`).join('<br>');
         rL.innerHTML = `<strong>Última Rota:</strong><br><span style="color:var(--pr-blue-mid)">● Início: Minha Localização</span><br>${names}`;
       }
 
@@ -2146,18 +2172,16 @@ function loadLocations() {
       const drcLinkText = document.getElementById('drcLinkText');
       if(drcLinkText) drcLinkText.textContent = "maps.app.goo.gl";
 
-      // Dashboard
-      if(data.polyline) {
-        const apiKey = CONFIG.firebase.apiKey;
-        const poly = encodeURIComponent(data.polyline);
-        const staticImgUrl = `https://maps.googleapis.com/maps/api/staticmap?size=440x280&path=color:0x4285F4|weight:4|enc:${poly}&key=${apiKey}`;
-        
-        const previewImg = document.getElementById('routePreviewImg');
+      // Dashboard (Removido Static Maps para não expor a API Key na URL)
+      if(data.mapsUrl) {
         const previewContainer = document.getElementById('routePreviewContainer');
         const actionContainer = document.getElementById('routeActionContainer');
         const externalLink = document.getElementById('routeExternalLink');
-        if(previewImg) previewImg.src = staticImgUrl;
-        if(previewContainer) previewContainer.style.display = 'block';
+        
+        // Esconde o container da imagem estática
+        if(previewContainer) previewContainer.style.display = 'none';
+        
+        // Mantém as ações e o link
         if(actionContainer) actionContainer.style.display = 'block';
         if(externalLink) externalLink.href = data.mapsUrl || "#";
       }
@@ -2169,7 +2193,7 @@ function loadLocations() {
         setTimeout(() => card.style.transform = 'scale(1)', 400);
       }
     }
-  });
+  }));
 }
 
 
@@ -2542,7 +2566,7 @@ window.generateManualRoute = async function() {
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
     if (builderSelectedPoints.length > 1) {
       const wpUrls = builderSelectedPoints.slice(0, -1).map(p => window.formatMapsLocation(p));
-      mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
+      mapsUrl += `&waypoints=${wpUrls.join('|')}`;
     }
 
 
@@ -2819,29 +2843,43 @@ window.startDriverDailyRoute = function() {
     return;
   }
 
-  // 1. Generate Maps URL based on tempDriverRouteSequence
-  let mapsUrl = `https://www.google.com/maps/dir/?api=1`;
-  
-  const lastP = window.tempDriverRouteSequence[window.tempDriverRouteSequence.length - 1];
-  const wpUrls = window.tempDriverRouteSequence.slice(0, -1).map(p => window.formatMapsLocation(p));
-  
-  mapsUrl += `&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
-  if (wpUrls.length > 0) {
-    mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
+  // 1. Detectar se o motorista reordenou as paradas
+  const originalPoints = (window.activeRouteData && window.activeRouteData.points) || [];
+  const currentPoints = window.tempDriverRouteSequence;
+
+  let wasReordered = originalPoints.length !== currentPoints.length;
+  if (!wasReordered) {
+    for (let i = 0; i < originalPoints.length; i++) {
+      const origName = originalPoints[i].name || originalPoints[i].input || '';
+      const currName = currentPoints[i].name || currentPoints[i].input || '';
+      if (origName !== currName) {
+        wasReordered = true;
+        break;
+      }
+    }
   }
 
+  let mapsUrl;
+
+  if (!wasReordered && window.activeRouteData && window.activeRouteData.mapsUrl) {
+    // Não reordenou: usar a URL já salva pelo admin (completa e correta)
+    mapsUrl = window.activeRouteData.mapsUrl;
+  } else {
+    // Reordenou: reconstruir a URL com a nova sequência, usando '|' como separador
+    const lastP = currentPoints[currentPoints.length - 1];
+    mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
+    if (currentPoints.length > 1) {
+      const wpUrls = currentPoints.slice(0, -1).map(p => window.formatMapsLocation(p));
+      mapsUrl += `&waypoints=${wpUrls.join('|')}`;
+    }
+  }
 
   // 2. Mark route as "Em Rota" in Firestore and sync with Admin
   window.updateRouteStatus(window.activeRouteId, "Em Rota").catch(e => console.warn("Falha ao sincronizar status", e));
 
   // 3. Open URL
-  // Sênior Fix: No mobile, usamos window.location.href para disparar o "Intent" do aplicativo nativo.
-  // Usar '_blank' força o sistema a abrir o navegador (Chrome/Safari) em vez de sugerir o App Google Maps.
-  if (isTouchDevice()) {
-    window.location.href = mapsUrl;
-  } else {
-    window.open(mapsUrl, '_blank');
-  }
+  // Sempre usar open() — o sistema operacional redireciona para o app nativo
+  window.open(mapsUrl, '_blank');
 
   // 4. Reset UI state without a hard reload that could cancel the navigation intent
   setTimeout(() => {
@@ -2942,41 +2980,33 @@ async function renderFleetDriverCards() {
       const email = u.email || '';
       const uid = docSnap.id;
 
-      // Obter última rota ativa (history) para exibir detalhes
+      // Usar campo denormalizado lastRouteSummary (já atualizado via batch em cada envio/status)
+      // Isso evita 1 query de history por motorista
       let lastRouteInfo = null;
-      try {
-        const hq = query(collection(db, "users", uid, "history"), orderBy("createdAt", "desc"), limit(1));
-        const hSnap = await getDocs(hq);
-        if (!hSnap.empty) {
-          const hData = hSnap.docs[0].data();
-          lastRouteInfo = {
-            stops: hData.stopsCount || (hData.points ? hData.points.length : 0),
-            distance: hData.distance || '—',
-            time: hData.time || '—',
-            status: hData.status || 'Pendente'
-          };
-        }
-      } catch(e) { /* silencioso */ }
+      const lastRoute = u.lastRouteSummary || null;
+      if (lastRoute) {
+        lastRouteInfo = {
+          stops: lastRoute.stopsCount || 0,
+          distance: lastRoute.distance || '—',
+          time: lastRoute.time || '—',
+          status: lastRoute.status || 'Pendente'
+        };
+      }
 
       // Obter rotas agendadas para determinar status
+      // (mantém getDocs pois scheduledRoutes não está denormalizado no user doc)
       let scheduledCountScheduled = 0;
       let scheduledCountExpired = 0;
       let nextScheduledDate = null;
       let nextScheduledStops = 0;
       try {
-        const sq = collection(db, "users", uid, "scheduledRoutes");
+        const sq = query(collection(db, "users", uid, "scheduledRoutes"), where("status", "==", "scheduled"));
         const sSnap = await getDocs(sq);
         const now = new Date();
         
-        let foundFirst = false;
-        
-        // Colocar tudo em um array para podermos ordenar no Javascript sem depender do index no Firebase
         let allSchedules = [];
         sSnap.forEach(snap => {
-          const d = snap.data();
-          if (d.status === 'scheduled') {
-            allSchedules.push(d);
-          }
+          allSchedules.push(snap.data());
         });
 
         // Ordena por data (ascendente)
@@ -2986,6 +3016,7 @@ async function renderFleetDriverCards() {
           return tA - tB;
         });
 
+        let foundFirst = false;
         for (const d of allSchedules) {
           const sDate = d.scheduledDate && d.scheduledDate.toDate ? d.scheduledDate.toDate() : null;
           if (!foundFirst && sDate) {
@@ -3009,8 +3040,8 @@ async function renderFleetDriverCards() {
 
       if (lastRouteInfo) {
         if (lastRouteInfo.status === 'Pendente') { manualClass = 'pending'; manualText = 'Pendente'; manualBorder = '#e67e22'; manualIcon = '▶️'; }
-        if (lastRouteInfo.status === 'Em Andamento') { manualClass = 'active'; manualText = 'Rodando'; manualBorder = '#3498db'; manualIcon = '🚚'; }
-        if (lastRouteInfo.status === 'Finalizada') { manualClass = 'completed'; manualText = 'Concluída'; manualBorder = '#27ae60'; manualIcon = '✅'; }
+        if (lastRouteInfo.status === 'Em Rota') { manualClass = 'active'; manualText = 'Rodando'; manualBorder = '#3498db'; manualIcon = '🚚'; }
+        if (lastRouteInfo.status === 'Concluída') { manualClass = 'completed'; manualText = 'Concluída'; manualBorder = '#27ae60'; manualIcon = '✅'; }
       }
 
       // Status PRÓPRIO dos agendamentos
@@ -3446,7 +3477,7 @@ window.fpSaveScheduledRoute = async function() {
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
     if (window._fpSchedulePoints.length > 1) {
       const wpUrls = window._fpSchedulePoints.slice(0, -1).map(p => window.formatMapsLocation(p));
-      mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
+      mapsUrl += `&waypoints=${wpUrls.join('|')}`;
     }
 
     // Salvar na subcollection do motorista
@@ -3941,10 +3972,10 @@ function fpRenderEditSchedAvailable() {
     (loc.originalInput || '').toLowerCase().includes(lowerTerm)
   );
 
-  const selectedIds = new Set(window._editSchedPoints.map(p => p.name));
+  const selectedIds = new Set(window._editSchedPoints.map(p => p.id));
   
   filtered.forEach(loc => {
-    if (selectedIds.has(loc.name)) return;
+    if (selectedIds.has(loc.id)) return;
 
     const item = document.createElement('div');
     item.className = 'loc-item';
@@ -4012,7 +4043,7 @@ window.fpSaveEditSchedule = async function() {
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${window.formatMapsLocation(lastP)}&travelmode=driving`;
     if (window._editSchedPoints.length > 1) {
       const wpUrls = window._editSchedPoints.slice(0, -1).map(p => window.formatMapsLocation(p));
-      mapsUrl += `&waypoints=${wpUrls.join('%7C')}`;
+      mapsUrl += `&waypoints=${wpUrls.join('|')}`;
     }
 
     const schedRef = doc(db, "users", window._editSchedDriverUid, "scheduledRoutes", window._editSchedId);
@@ -4432,8 +4463,8 @@ window.saveDriverName = async function(driverUid, btn) {
     }
 
     // NOTE: Admin Hub (Monitorar ao Vivo) auto-updates via its existing onSnapshot.
-    // Also refresh the builder driver cards
-    applyRoleUI();
+    // Sincronizar a lista do builder de rotas com o novo nome
+    refreshBuilderDriverList();
   } catch(e) {
     btn.textContent = 'Erro';
     btn.style.background = '#e74c3c';
@@ -5345,9 +5376,12 @@ window.handleLogout = async function() {
 
 // Start GPS tracking once role is confirmed as driver
 const _spyRoleCheckInterval = setInterval(() => {
-  if (currentUser && window.userRole === 'driver') {
+  if (!currentUser) return;
+  if (window.userRole === 'driver') {
     clearInterval(_spyRoleCheckInterval);
     startDriverGPS();
+  } else if (window.userRole === 'admin') {
+    clearInterval(_spyRoleCheckInterval); // admin não precisa de GPS
   }
 }, 1000);
 
