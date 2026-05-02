@@ -1634,97 +1634,112 @@
 <!-- AUTO ROUTE MODAL -->
 <div class="modal-overlay" id="autoRouteModal" onclick="window.closeAutoRouteModal()">
   <div class="ar-modal-card" onclick="event.stopPropagation()">
-    <!-- Header -->
-    <div class="ar-header">
-      <div class="ar-header-icon">🧠</div>
-      <div class="ar-header-text">
-        <h3>Rota Automática Inteligente</h3>
-        <p>Otimização por proximidade (Nearest Neighbor)</p>
-      </div>
-      <button class="ar-close-btn" onclick="window.closeAutoRouteModal()">✕</button>
-    </div>
-
-    <!-- Body -->
-    <div class="ar-body">
-      <!-- Driver Select (admin only) -->
-      <div id="arDriverSection" class="ar-driver-section">
-        <div class="ar-section-label">👤 Enviar rota para</div>
-        <select id="arDriverSelect" class="ar-driver-select"></select>
-      </div>
-
-      <!-- How it works -->
-      <div class="ar-section-label">Como funciona</div>
-      <div class="ar-steps">
-        <div class="ar-step">
-          <div class="ar-step-num">1</div>
-          <div class="ar-step-text">Selecione os locais</div>
-        </div>
-        <div class="ar-step">
-          <div class="ar-step-num">2</div>
-          <div class="ar-step-text">Marque ⭐ prioridades</div>
-        </div>
-        <div class="ar-step">
-          <div class="ar-step-num">3</div>
-          <div class="ar-step-text">Clique em Calcular</div>
-        </div>
-        <div class="ar-step">
-          <div class="ar-step-num">4</div>
-          <div class="ar-step-text">Confirme a rota</div>
-        </div>
-      </div>
-
-      <!-- Location header -->
-      <div class="ar-loc-header">
-        <div class="ar-section-label" style="margin-bottom:0">📍 Locais disponíveis</div>
-        <div class="ar-select-actions">
-          <button class="ar-select-btn" onclick="window._arSelectAll()">Todos</button>
-          <button class="ar-select-btn" onclick="window._arDeselectAll()">Nenhum</button>
-        </div>
-        <div id="arLocCount" class="ar-loc-count">0 de 0</div>
-      </div>
-
-      <!-- Search -->
-      <div class="ar-search-wrap">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input id="arSearchInput" class="ar-search-input" placeholder="Buscar local..." oninput="window._arFilterLocs()" />
-      </div>
-
-      <!-- Location list -->
-      <div id="arLocList" class="ar-loc-list"></div>
-
-      <!-- Status bar -->
-      <div id="arStatusBar" class="ar-status-bar">
-        <div id="arSpinner" class="ar-spinner"></div>
-        <div id="arStatusCheck" class="ar-status-check" style="display:none">✓</div>
-        <div id="arStatusText" class="ar-status-text"></div>
-      </div>
-
-      <!-- Result -->
-      <div id="arResultSection" class="ar-result-section">
-        <div class="ar-section-label">📊 Resultado da Otimização</div>
-        <div class="ar-result-summary">
-          <div class="ar-result-stat">
-            <div id="arStatKm" class="ar-stat-value">0</div>
-            <div class="ar-stat-label">km estimados</div>
+    <!-- Drag Handle (mobile bottom-sheet indicator) -->
+    <div class="ar-drag-handle"></div>
+    
+    <div class="ar-layout-wrapper">
+      <!-- Sidebar / Aside -->
+      <div class="ar-aside">
+        <!-- Header -->
+        <div class="ar-header">
+          <div class="ar-header-icon">🧠</div>
+          <div class="ar-header-text">
+            <h3>Rota Automática</h3>
+            <p>Otimização por proximidade</p>
           </div>
-          <div class="ar-result-stat">
-            <div id="arStatStops" class="ar-stat-value">0</div>
-            <div class="ar-stat-label">paradas</div>
+          <button class="ar-close-btn ar-mobile-close" onclick="window.closeAutoRouteModal()">✕</button>
+        </div>
+        
+        <div class="ar-aside-body">
+          <!-- Driver Select (admin only) -->
+          <div id="arDriverSection" class="ar-driver-section">
+            <div class="ar-section-label">👤 Enviar rota para</div>
+            <select id="arDriverSelect" class="ar-driver-select"></select>
           </div>
-          <div class="ar-result-stat">
-            <div id="arStatPriority" class="ar-stat-value">0</div>
-            <div class="ar-stat-label">prioridades</div>
+
+          <!-- How it works -->
+          <div class="ar-section-label">Como funciona</div>
+          <div class="ar-steps">
+            <div class="ar-step">
+              <div class="ar-step-num">1</div>
+              <div class="ar-step-text">Selecione os locais</div>
+            </div>
+            <div class="ar-step">
+              <div class="ar-step-num">2</div>
+              <div class="ar-step-text">Marque ⭐ prioridades</div>
+            </div>
+            <div class="ar-step">
+              <div class="ar-step-num">3</div>
+              <div class="ar-step-text">Clique em Calcular</div>
+            </div>
+            <div class="ar-step">
+              <div class="ar-step-num">4</div>
+              <div class="ar-step-text">Confirme a rota</div>
+            </div>
+          </div>
+
+          <!-- Result Section -->
+          <div id="arResultSection" class="ar-result-section">
+            <div class="ar-section-label">📊 Resultado da Otimização</div>
+            <div class="ar-result-summary">
+              <div class="ar-result-stat">
+                <div id="arStatKm" class="ar-stat-value">0</div>
+                <div class="ar-stat-label">km estimados</div>
+              </div>
+              <div class="ar-result-stat">
+                <div id="arStatStops" class="ar-stat-value">0</div>
+                <div class="ar-stat-label">paradas</div>
+              </div>
+              <div class="ar-result-stat">
+                <div id="arStatPriority" class="ar-stat-value">0</div>
+                <div class="ar-stat-label">prioridades</div>
+              </div>
+            </div>
+            <div id="arResultList" class="ar-result-list"></div>
           </div>
         </div>
-        <div id="arResultList" class="ar-result-list"></div>
       </div>
-    </div>
 
-    <!-- Footer -->
-    <div class="ar-footer">
-      <button class="ar-btn ar-btn-cancel" onclick="window.closeAutoRouteModal()">Cancelar</button>
-      <button id="arCalcBtn" class="ar-btn ar-btn-primary" onclick="window._arCalculate()">🧠 Calcular Melhor Rota</button>
-      <button id="arConfirmBtn" class="ar-btn ar-btn-confirm" style="display:none" onclick="window._arConfirmRoute()">✓ Confirmar e Enviar</button>
+      <!-- Main Content -->
+      <div class="ar-main">
+        <div class="ar-main-top">
+          <!-- Location header -->
+          <div class="ar-loc-header">
+            <div class="ar-section-label" style="margin-bottom:0">📍 Locais disponíveis</div>
+            <div class="ar-select-actions">
+              <button class="ar-select-btn" onclick="window._arSelectAll()">Todos</button>
+              <button class="ar-select-btn" onclick="window._arDeselectAll()">Nenhum</button>
+            </div>
+            <div id="arLocCount" class="ar-loc-count">0 de 0</div>
+            <button class="ar-close-btn ar-desktop-close" onclick="window.closeAutoRouteModal()">✕</button>
+          </div>
+
+          <!-- Search -->
+          <div class="ar-search-wrap">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input id="arSearchInput" class="ar-search-input" placeholder="Buscar local..." oninput="window._arFilterLocs()" />
+          </div>
+        </div>
+
+        <!-- Location list -->
+        <div id="arLocList" class="ar-loc-list"></div>
+
+        <div class="ar-main-bottom">
+          <!-- Status bar -->
+          <div id="arStatusBar" class="ar-status-bar">
+            <div id="arSpinner" class="ar-spinner"></div>
+            <div id="arStatusCheck" class="ar-status-check" style="display:none">✓</div>
+            <div id="arStatusText" class="ar-status-text"></div>
+          </div>
+
+          <!-- Footer -->
+          <div class="ar-footer">
+            <button class="ar-btn ar-btn-cancel" onclick="window.closeAutoRouteModal()">Cancelar</button>
+            <button id="arCalcBtn" class="ar-btn ar-btn-primary" onclick="window._arCalculate()">🧠 Calcular Melhor Rota</button>
+            <button id="arConfirmBtn" class="ar-btn ar-btn-confirm" style="display:none" onclick="window._arConfirmRoute()">✓ Confirmar e Enviar</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>

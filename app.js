@@ -18,6 +18,9 @@ let driverMissionsUnsubscribe = null;
 let deliveryPhotoBuffer = null;
 let currentMissionIdForCompletion = null;
 
+// Expose auth to window for non-module scripts (like auto-route.js)
+window.getAuthToken = () => auth.currentUser ? auth.currentUser.getIdToken() : null;
+
 // ══════════════════════════════════════════════════════════
 // UTILS & NOTIFICATIONS
 // ══════════════════════════════════════════════════════════
@@ -563,9 +566,9 @@ async function refreshBuilderDriverList() {
       const u = docSnap.data();
       // O builder de rotas só deve mostrar motoristas vinculados a esta empresa
       if (u.role === "driver" && u.companyId === window.companyId) {
-        const displayName = u.nome || 'Motorista sem nome';
+        const displayName = u.apelido || u.nome || 'Motorista sem nome';
         const initial = displayName.charAt(0).toUpperCase();
-        window._fleetDrivers.push({ uid: docSnap.id, nome: u.nome, email: u.email });
+        window._fleetDrivers.push({ uid: docSnap.id, apelido: u.apelido, nome: u.nome, email: u.email });
 
         const label = document.createElement('label');
         label.className = 'bdr-item';

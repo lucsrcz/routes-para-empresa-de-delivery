@@ -10,8 +10,10 @@ const db = getFirestore(app);
 // Admin role can only be assigned manually via Firebase Console.
 
 // ── Process Google Redirect Result (Mobile) ──
+let isRedirecting = false;
 getRedirectResult(auth).then(async (result) => {
   if (result) {
+    isRedirecting = true;
     const uid = result.user.uid;
     const userRef = doc(db, "users", uid);
     const userSnap = await getDoc(userRef);
@@ -46,14 +48,22 @@ getRedirectResult(auth).then(async (result) => {
     sessionStorage.removeItem('selectedRole');
     sessionStorage.removeItem('inviteCode');
     sessionStorage.removeItem('nomeInput');
+    
+    window.location.href = "app.html";
+  } else {
+    sessionStorage.removeItem('googleLoginPending');
   }
 }).catch((error) => {
+  sessionStorage.removeItem('googleLoginPending');
   console.error("Erro no redirect result do Google:", error);
   showToast("Falha ao concluir login com Google. Tente novamente.");
 });
 
 onAuthStateChanged(auth, async (user) => {
   if (user) {
+    if (typeof isRedirecting !== 'undefined' && isRedirecting) return;
+    if (sessionStorage.getItem('googleLoginPending') === 'true') return;
+
     // Se tem convite na URL e o user já está logado, processar o vínculo antes de redirecionar
     const urlParams = new URLSearchParams(window.location.search);
     const convite = urlParams.get('convite');
@@ -285,19 +295,6 @@ window.handleGoogleLogin = async function(btn) {
   } catch(e) { console.warn('Erro ao definir persistência (Google):', e); }
 
   try {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-      sessionStorage.setItem('googleLoginPending', 'true');
-      sessionStorage.setItem('isRegisterMode', isRegisterMode);
-      sessionStorage.setItem('selectedRole', selectedRole || '');
-      sessionStorage.setItem('inviteCode', document.getElementById('inviteCodeInput')?.value.trim() || '');
-      sessionStorage.setItem('nomeInput', document.getElementById('nomeinput')?.value.trim() || '');
-      
-      await signInWithRedirect(auth, provider);
-      return; // Execution stops here due to redirect
-    }
-
     const result = await signInWithPopup(auth, provider);
     
     // Check if user document exists — if not (first time Google login), prompt for role
@@ -333,15 +330,29 @@ window.handleGoogleLogin = async function(btn) {
     }
     // Redirect happens via onAuthStateChanged
   } catch (error) {
+    if (error.code === 'auth/popup-blocked' || error.code === 'auth/popup-closed-by-user' || error.code === 'auth/web-storage-unsupported') {
+      sessionStorage.setItem('googleLoginPending', 'true');
+      sessionStorage.setItem('isRegisterMode', isRegisterMode);
+      sessionStorage.setItem('selectedRole', selectedRole || '');
+      sessionStorage.setItem('inviteCode', document.getElementById('inviteCodeInput')?.value.trim() || '');
+      sessionStorage.setItem('nomeInput', document.getElementById('nomeinput')?.value.trim() || '');
+      
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (err) {
+        sessionStorage.removeItem('googleLoginPending');
+        showToast("Erro ao redirecionar para o Google: " + err.code);
+        btn.innerHTML = originalContent;
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+      }
+      return;
+    }
     let msg = "Erro no Google Login";
-    if (error.code === 'auth/popup-closed-by-user') {
-      msg = "A janela de login foi fechada antes de concluir.";
-    } else if (error.code === 'auth/operation-not-allowed') {
+    if (error.code === 'auth/operation-not-allowed') {
       msg = "O login com Google não está ativado no Firebase Console.";
     } else if (error.code === 'auth/unauthorized-domain') {
       msg = "Este domínio não está autorizado no Firebase.";
-    } else if (error.code === 'auth/popup-blocked') {
-      msg = "O navegador bloqueou a janela de login. Verifique os pop-ups.";
     } else {
       msg = "Erro: " + error.code;
     }

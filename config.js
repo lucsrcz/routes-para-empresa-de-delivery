@@ -15,7 +15,7 @@ const CONFIG = {
   },
   
   // URL do Backend (Mude para a URL de produção quando disponível)
-  apiUrl: window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+  apiUrl: (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:" || !window.location.hostname)
     ? "http://localhost:3000"
     : "https://seu-backend-producao.com", // TODO: Atualizar após deploy
     

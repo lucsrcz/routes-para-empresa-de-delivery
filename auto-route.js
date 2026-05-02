@@ -16,13 +16,19 @@
   'use strict';
 
   // ── State ──
-  let arLocations  = [];
-  let arSorted     = [];
-  let arPhase      = 'idle';
-  let arTotalKm    = 0;
+  let arLocations   = [];
+  let arSorted      = [];
+  let arPhase       = 'idle';
+  let arTotalKm     = 0;
+  let arAutoTimer   = null; // debounce handle for auto-recalculate
+  let arUsedOSRM    = false; // flag: tells user if real-road distances were used
 
   // ── Haversine distance (km) ──
+  // BUG FIX: Added NaN guard — returns Infinity if any coordinate is invalid,
+  // so it's never chosen as "nearest" in the sort algorithm.
   function haversine(lat1, lng1, lat2, lng2) {
+    if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) return Infinity;
+    if (isNaN(lat1) || isNaN(lng1) || isNaN(lat2) || isNaN(lng2)) return Infinity;
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLng = (lng2 - lng1) * Math.PI / 180;
@@ -33,15 +39,24 @@
   }
 
   // ── Nearest Neighbor sort ──
+  // BUG FIX: Pre-filters points with invalid coords before sorting to prevent
+  // NaN comparisons that would corrupt the route order. Invalid points are
+  // returned at the end (unrouted), not silently dropped.
   function nearestNeighborSort(startLat, startLng, points) {
     if (points.length === 0) return [];
-    const remaining = [...points];
+
+    // Separate valid from invalid coordinate points
+    const validPoints   = points.filter(p => p.lat != null && p.lng != null && !isNaN(p.lat) && !isNaN(p.lng));
+    const invalidPoints = points.filter(p => !(p.lat != null && p.lng != null && !isNaN(p.lat) && !isNaN(p.lng)));
+
+    const remaining = [...validPoints];
     const sorted = [];
     
     let curLat = startLat, curLng = startLng;
 
-    // Se não tiver GPS de origem (usuário sem permissão), usa o 1º item da lista
-    if (curLat == null || curLng == null) {
+    // Se não tiver GPS de origem válida, usa o 1º ponto válido como âncora
+    if (curLat == null || curLng == null || isNaN(curLat) || isNaN(curLng)) {
+      if (remaining.length === 0) return [...invalidPoints];
       const first = remaining.shift();
       sorted.push(first);
       curLat = first.lat;
@@ -63,20 +78,75 @@
       curLat = chosen.lat;
       curLng = chosen.lng;
     }
-    return sorted;
+
+    // Append invalid-coord points at the end (same behavior as before, explicit now)
+    return [...sorted, ...invalidPoints];
   }
 
-  // ── Calculate total route distance ──
+  // ── OSRM Distance Matrix (free, no API key needed) ──
+  // Uses the public OSRM routing engine to get real road distances.
+  // Falls back to Haversine silently if unavailable.
+  async function fetchOSRMMatrix(coordsList) {
+    if (!coordsList || coordsList.length < 2) return null;
+    if (coordsList.length > 25) return null; // public API limit
+    const coords = coordsList.map(c => `${c.lng},${c.lat}`).join(';');
+    const url = `https://router.project-osrm.org/table/v1/driving/${coords}?annotations=distance`;
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 7000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(tid);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.code !== 'Ok' || !data.distances) return null;
+      return data.distances; // NxN matrix in meters
+    } catch (e) {
+      console.warn('[Auto-Route] OSRM indisponível, usando Haversine:', e.message);
+      return null;
+    }
+  }
+
+  // ── Nearest Neighbor using OSRM matrix (index-based) ──
+  function nnMatrix(startIdx, candidates, matrix, coordsList) {
+    const valid   = candidates.filter(p => p._mi != null);
+    const invalid = candidates.filter(p => p._mi == null);
+    const remaining = [...valid];
+    const sorted = [];
+    let curIdx = startIdx;
+
+    if (curIdx == null) {
+      if (remaining.length === 0) return invalid;
+      const first = remaining.shift();
+      sorted.push(first);
+      curIdx = first._mi;
+    }
+
+    while (remaining.length > 0) {
+      let best = 0, bestDist = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        let d;
+        if (matrix && matrix[curIdx] && remaining[i]._mi != null) {
+          d = matrix[curIdx][remaining[i]._mi] ?? Infinity;
+        } else {
+          const from = coordsList[curIdx];
+          d = haversine(from.lat, from.lng, remaining[i].lat, remaining[i].lng) * 1000;
+        }
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      const chosen = remaining.splice(best, 1)[0];
+      sorted.push(chosen);
+      curIdx = chosen._mi;
+    }
+    return [...sorted, ...invalid];
+  }
+
+  // ── Calculate total route distance (km) ──
   function calcTotalKm(origin, points) {
     let total = 0;
-    // Se a origem for nula (sem GPS), pegamos o primeiro ponto válido
     let prev = (origin.lat != null && origin.lng != null) ? origin : null;
-    
     for (const pt of points) {
-      if (pt.lat != null && pt.lng != null) {
-        if (prev != null && prev.lat != null && prev.lng != null) {
-          total += haversine(prev.lat, prev.lng, pt.lat, pt.lng);
-        }
+      if (pt.lat != null && pt.lng != null && !isNaN(pt.lat) && !isNaN(pt.lng)) {
+        if (prev != null) total += haversine(prev.lat, prev.lng, pt.lat, pt.lng);
         prev = pt;
       }
     }
@@ -100,7 +170,7 @@
         lat: hasCoords ? Number(lat) : null,
         lng: hasCoords ? Number(lng) : null,
         originalInput: loc.originalInput || loc.input || '',
-        selected: false,
+        selected: true,  // ← AUTO-SELECT ALL on open
         priority: false,
         hasCoords: hasCoords,
         resolving: false,
@@ -111,6 +181,8 @@
     arSorted = [];
     arPhase = 'idle';
     arTotalKm = 0;
+    arUsedOSRM = false;
+    if (arAutoTimer) clearTimeout(arAutoTimer);
 
     // Driver selector
     const driverSection = document.getElementById('arDriverSection');
@@ -130,6 +202,9 @@
 
     const modal = document.getElementById('autoRouteModal');
     if (modal) modal.classList.add('active');
+
+    // ── AUTO-CALCULATE: start 1.2s after modal opens ──
+    scheduleAutoCalc();
   };
 
   window.closeAutoRouteModal = function() {
@@ -153,7 +228,7 @@
     drivers.forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.uid;
-      opt.textContent = d.displayName || d.name || d.email || d.uid;
+      opt.textContent = d.apelido || d.nome || d.displayName || d.name || d.email || d.uid;
       sel.appendChild(opt);
     });
 
@@ -190,21 +265,38 @@
       if (!loc.hasCoords) classes.push('ar-no-coords');
 
       const statusText = loc.hasCoords
-        ? (loc.address ? escapeHTML(truncate(loc.address, 50)) : '📍 Coordenadas disponíveis')
+        ? (loc.address ? escapeHTML(loc.address) : '📍 Coordenadas disponíveis')
         : `<span class="ar-loc-no-gps">📡 Coordenadas serão resolvidas ao calcular</span>`;
 
       const safeId = String(loc.id).replace(/'/g, "\\'");
 
       return `
         <div class="${classes.join(' ')}" data-id="${loc.id}" onclick="window._arToggleSelect('${safeId}')">
-          <div class="ar-loc-check">✓</div>
+          <div class="ar-loc-check">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </div>
           <div class="ar-loc-info">
             <div class="ar-loc-name">${escapeHTML(loc.name)}</div>
             <div class="ar-loc-addr">${statusText}</div>
           </div>
-          <div class="ar-loc-star" onclick="event.stopPropagation(); window._arTogglePriority('${safeId}')" title="Marcar como prioridade">⭐</div>
+          <div class="ar-loc-star" onclick="event.stopPropagation(); window._arTogglePriority('${safeId}')" title="Marcar como prioridade">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+          </div>
         </div>`;
     }).join('');
+  }
+
+  // ── scheduleAutoCalc: debounced auto-trigger ──
+  // Called on open and after any selection/priority change.
+  // Waits 1.2s idle before firing so rapid clicks batch into one calculation.
+  function scheduleAutoCalc(delay) {
+    if (arAutoTimer) clearTimeout(arAutoTimer);
+    const selected = arLocations.filter(l => l.selected);
+    if (selected.length === 0) return;
+    arAutoTimer = setTimeout(() => {
+      arAutoTimer = null;
+      window._arCalculate();
+    }, delay ?? 1200);
   }
 
   // ── Toggle Selection ──
@@ -215,6 +307,7 @@
     if (!loc.selected) loc.priority = false;
     renderLocations(document.getElementById('arSearchInput')?.value);
     hideResult();
+    scheduleAutoCalc();
   };
 
   // ── Toggle Priority (any location) ──
@@ -225,6 +318,7 @@
     loc.priority = !loc.priority;
     renderLocations(document.getElementById('arSearchInput')?.value);
     hideResult();
+    scheduleAutoCalc();
   };
 
   // ── Select All / Deselect All ──
@@ -232,9 +326,11 @@
     arLocations.forEach(l => l.selected = true);
     renderLocations(document.getElementById('arSearchInput')?.value);
     hideResult();
+    scheduleAutoCalc();
   };
 
   window._arDeselectAll = function() {
+    if (arAutoTimer) clearTimeout(arAutoTimer);
     arLocations.forEach(l => { l.selected = false; l.priority = false; });
     renderLocations(document.getElementById('arSearchInput')?.value);
     hideResult();
@@ -285,7 +381,9 @@
   }
 
   // ══════════════════════════════════════════════════════════
-  //  CALCULATE — Core pipeline (senior-level)
+  //  CALCULATE — Delega tudo ao backend /api/optimize-route
+  //  O backend faz: resolve links → OSRM matrix → Nearest Neighbor
+  //  O frontend só envia os locais + GPS do usuário e renderiza.
   // ══════════════════════════════════════════════════════════
   window._arCalculate = async function() {
     const selected = arLocations.filter(l => l.selected);
@@ -295,37 +393,48 @@
     }
 
     const calcBtn = document.getElementById('arCalcBtn');
+
+    const resetUI = (errorMsg) => {
+      setPhase('idle');
+      if (calcBtn) {
+        calcBtn.disabled = false;
+        calcBtn.style.display = 'flex';
+        calcBtn.innerHTML = '🧠 Calcular Melhor Rota';
+      }
+      if (errorMsg) {
+        console.error('[Auto-Route] Pipeline error:', errorMsg);
+        window.showToast('Erro ao calcular rota. Tente novamente.', 'error');
+      }
+    };
+
     if (calcBtn) {
       calcBtn.disabled = true;
       calcBtn.innerHTML = '<div class="ar-spinner" style="width:16px;height:16px;border-width:2px;"></div> Calculando...';
     }
 
-    // ── Phase 1: Get user GPS ──
+    try {
+
+    // ── Passo 1: Obter GPS do usuário ──────────────────────────────────────
     setPhase('locating', 'Obtendo sua localização GPS...');
 
     let userLat = null, userLng = null;
     try {
       const pos = await new Promise((resolve, reject) => {
-        if (!('geolocation' in navigator)) {
-          reject(new Error('GPS não suportado'));
-          return;
-        }
+        if (!('geolocation' in navigator)) { reject(new Error('GPS não suportado')); return; }
         navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 8000, // Reduced to 8s to fallback faster if stuck
-          maximumAge: 60000
+          enableHighAccuracy: true, timeout: 8000, maximumAge: 60000
         });
       });
       userLat = pos.coords.latitude;
       userLng = pos.coords.longitude;
-      // Atualiza o global para uso futuro
       window.userCoords = { lat: userLat, lng: userLng };
-    } catch (e) {
-      if (window.userCoords && window.userCoords.lat) {
+    } catch (_gpsErr) {
+      // Fallback 1: GPS salvo de sessão anterior
+      if (window.userCoords?.lat) {
         userLat = window.userCoords.lat;
         userLng = window.userCoords.lng;
       } else {
-        // Fallback avançado: Geolocalização via IP
+        // Fallback 2: Geolocalização por IP (sem precisão perfeita mas funcional)
         try {
           const ipRes = await fetch('https://ipapi.co/json/');
           if (ipRes.ok) {
@@ -334,95 +443,79 @@
               userLat = Number(ipData.latitude);
               userLng = Number(ipData.longitude);
               window.userCoords = { lat: userLat, lng: userLng };
-              window.showToast('GPS bloqueado. Usando localização aproximada via rede.', 'info');
+              window.showToast('GPS bloqueado. Usando localização aproximada por rede.', 'info');
             }
           }
-        } catch (errIp) {
-          window.showToast('Não foi possível obter sua localização. A rota começará do primeiro local.', 'warning');
+        } catch (_ipErr) {
+          window.showToast('Localização não disponível. Rota começará do primeiro local.', 'warning');
         }
       }
     }
 
-    // ── Phase 2: Resolve coordinates for locations without lat/lng ──
-    const needsResolving = selected.filter(l => !l.hasCoords && l.address);
-    
-    if (needsResolving.length > 0) {
-      setPhase('resolving', `Resolvendo coordenadas de ${needsResolving.length} local(is)...`);
+    // ── Passo 2: Montar payload e enviar ao backend ─────────────────────────
+    setPhase('resolving', 'Resolvendo endereços e calculando rota no servidor...');
 
-      // Resolve in parallel (batched to avoid overwhelming the backend)
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < needsResolving.length; i += BATCH_SIZE) {
-        const batch = needsResolving.slice(i, i + BATCH_SIZE);
-        
-        const results = await Promise.allSettled(
-          batch.map(async loc => {
-            if (!window.resolveLocationCoords) return null;
-            const resolved = await window.resolveLocationCoords(loc.address);
-            return { id: loc.id, resolved };
-          })
-        );
+    const token = await (window.getAuthToken ? window.getAuthToken() : null);
 
-        // Apply resolved coordinates back
-        results.forEach(result => {
-          if (result.status === 'fulfilled' && result.value?.resolved) {
-            const { id, resolved } = result.value;
-            const loc = arLocations.find(l => l.id === id);
-            if (loc && resolved.lat && resolved.lng) {
-              loc.lat = resolved.lat;
-              loc.lng = resolved.lng;
-              loc.hasCoords = true;
-              if (resolved.name && loc.name === 'Local sem nome') {
-                loc.name = resolved.name;
-              }
-            }
-          }
-        });
+    const payload = {
+      userLat,
+      userLng,
+      locations: selected.map(loc => ({
+        id: loc.id,
+        name: loc.name,
+        address: loc.address || loc.originalInput || '',
+        lat: loc.hasCoords ? loc.lat : null,
+        lng: loc.hasCoords ? loc.lng : null,
+        priority: !!loc.priority
+      }))
+    };
 
-        // Update progress text
-        const done = Math.min(i + BATCH_SIZE, needsResolving.length);
-        setPhase('resolving', `Resolvendo coordenadas... (${done}/${needsResolving.length})`);
+    setPhase('resolving', 'Consultando distâncias reais via OSRM...');
+
+    const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:" || !window.location.hostname)
+      ? "http://localhost:3000"
+      : "https://seu-backend-producao.com"; // Deve refletir a config global
+
+    const response = await fetch(`${API_URL}/api/optimize-route`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}));
+      throw new Error(errBody.error || `HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    // result = { sorted, totalKm, usedOSRM, unresolved }
+
+    // ── Passo 3: Salvar resultado e atualizar estado ─────────────────────────
+    arSorted   = result.sorted || [];
+    arTotalKm  = result.totalKm ?? 0;
+    arUsedOSRM = result.usedOSRM ?? false;
+
+    // Sincroniza dados resolvidos de volta para arLocations (para re-cálculos)
+    arSorted.forEach(srv => {
+      const loc = arLocations.find(l => String(l.id) === String(srv.id));
+      if (loc && srv.lat != null && srv.lng != null) {
+        loc.lat = srv.lat;
+        loc.lng = srv.lng;
+        loc.hasCoords = true;
       }
-    }
+    });
 
-    // ── Phase 3: Nearest Neighbor sort ──
-    setPhase('resolving', 'Calculando rota inteligente...');
-    await sleep(300);
+    // ── Passo 4: Mostrar resultado ──────────────────────────────────────────
+    const distLabel = arUsedOSRM ? ' (distâncias reais de estrada)' : ' (distâncias em linha reta)';
+    const unresolvedCount = (result.unresolved || []).length;
 
-    // Separate resolved vs unresolved
-    const resolved   = selected.filter(l => l.hasCoords);
-    const unresolved = selected.filter(l => !l.hasCoords);
-
-    // Among resolved: priority vs normal
-    const priorityWithCoords = resolved.filter(l => l.priority);
-    const normalWithCoords   = resolved.filter(l => !l.priority);
-
-    // Nearest Neighbor: priority first from user position
-    const sortedPriority = nearestNeighborSort(userLat, userLng, priorityWithCoords);
-
-    // Chain position: continue from last priority (or user pos)
-    let chainLat = userLat, chainLng = userLng;
-    if (sortedPriority.length > 0) {
-      const last = sortedPriority[sortedPriority.length - 1];
-      chainLat = last.lat;
-      chainLng = last.lng;
-    }
-
-    // Normal: sorted from chain position
-    const sortedNormal = nearestNeighborSort(chainLat, chainLng, normalWithCoords);
-
-    // Unresolved priority first, then unresolved normal, appended at end
-    const unresolvedPriority = unresolved.filter(l => l.priority);
-    const unresolvedNormal   = unresolved.filter(l => !l.priority);
-
-    // Final order: Priority(GPS) → Normal(GPS) → Priority(no GPS) → Normal(no GPS)
-    arSorted = [...sortedPriority, ...sortedNormal, ...unresolvedPriority, ...unresolvedNormal];
-    arTotalKm = calcTotalKm({ lat: userLat, lng: userLng }, arSorted);
-
-    // ── Phase 4: Ready ──
-    if (unresolved.length > 0) {
-      setPhase('ready', `Rota calculada! (${unresolved.length} local(is) sem GPS, adicionados ao final)`);
+    if (unresolvedCount > 0) {
+      setPhase('ready', `Rota calculada!${distLabel} · ${unresolvedCount} local(is) sem GPS ao final.`);
     } else {
-      setPhase('ready', 'Rota calculada com sucesso!');
+      setPhase('ready', `Rota calculada com sucesso!${distLabel}`);
     }
 
     renderResult();
@@ -430,9 +523,15 @@
     if (calcBtn) calcBtn.style.display = 'none';
     const confirmBtn = document.getElementById('arConfirmBtn');
     if (confirmBtn) confirmBtn.style.display = 'flex';
-  };
+
+    } catch (pipelineError) {
+      resetUI(pipelineError);
+    }
+  }; // <--- FECHA O _arCalculate AQUI
+
 
   // ── Render Result ──
+  // Exibe a rota ordenada com distâncias por parada (vindas do backend)
   function renderResult() {
     const section = document.getElementById('arResultSection');
     const listEl  = document.getElementById('arResultList');
@@ -440,30 +539,44 @@
     const stopsEl = document.getElementById('arStatStops');
     const prioEl  = document.getElementById('arStatPriority');
 
-    if (!section || !listEl) return;
+    if (!section || !listEl || !kmEl || !stopsEl || !prioEl) {
+      console.warn('[Auto-Route] renderResult: elemento DOM não encontrado.');
+      return;
+    }
 
-    kmEl.textContent = arTotalKm.toFixed(1);
+    kmEl.textContent    = isNaN(arTotalKm) ? '0.0' : Number(arTotalKm).toFixed(1);
     stopsEl.textContent = arSorted.length;
-    prioEl.textContent = arSorted.filter(p => p.priority).length;
+    prioEl.textContent  = arSorted.filter(p => p.priority).length;
 
     listEl.innerHTML = arSorted.map((pt, i) => {
-      const isPrio = pt.priority;
-      const noGps = !pt.hasCoords;
+      const isPrio  = pt.priority;
+      const noGps   = pt.hasCoords === false;
+      const distKm  = typeof pt.distFromPrevKm === 'number' ? pt.distFromPrevKm : null;
       const classes = ['ar-result-item'];
       if (isPrio) classes.push('ar-result-priority');
-      if (noGps) classes.push('ar-result-nogps');
+      if (noGps)  classes.push('ar-result-nogps');
+
+      const distBadge = distKm != null
+        ? `<span class="ar-result-dist">${distKm < 1 ? (distKm * 1000).toFixed(0) + ' m' : distKm.toFixed(1) + ' km'}</span>`
+        : '';
 
       return `
         <div class="${classes.join(' ')}">
           <div class="ar-result-badge">${i + 1}</div>
-          <div class="ar-result-name">${escapeHTML(pt.name)}</div>
-          ${isPrio ? '<span class="ar-result-tag ar-tag-priority">⭐ PRIORIDADE</span>' : ''}
-          ${noGps ? '<span class="ar-result-tag ar-tag-nogps">📡 Sem GPS</span>' : ''}
+          <div class="ar-result-info">
+            <div class="ar-result-name">${escapeHTML(pt.name)}</div>
+            <div class="ar-result-tags">
+              ${isPrio ? '<span class="ar-result-tag ar-tag-priority">⚡ PRIORIDADE</span>' : ''}
+              ${noGps  ? '<span class="ar-result-tag ar-tag-nogps">📡 Sem GPS</span>' : ''}
+              ${distBadge}
+            </div>
+          </div>
         </div>`;
     }).join('');
 
     section.classList.add('ar-visible');
   }
+
 
   // ── CONFIRM — inject and generate ──
   window._arConfirmRoute = function() {
