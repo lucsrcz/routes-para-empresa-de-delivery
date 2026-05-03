@@ -1,297 +1,481 @@
 /**
  * ══════════════════════════════════════════════════════════
- *  AUTO-ROUTE — Rota Automática Inteligente (Senior Edition)
- *  Foco: Processamento Silencioso, Automático e Alta Performance.
+ *  AUTO-ROUTE V2 — Sistema de Rota Automática Inteligente
+ *  Padrão Senior: Resiliência Máxima e Performance
  * ══════════════════════════════════════════════════════════
  */
-
-const RouteOptimizer = (function() {
+(function() {
   'use strict';
 
-  /** Haversine (km) */
-  function haversine(lat1, lng1, lat2, lng2) {
-    if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) return Infinity;
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) ** 2 +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
+  // ── Configurações ──
+  const CONFIG = {
+    OSRM_MAX_POINTS: 25, // Limite para API gratuita OSRM
+    GEOLOCATION_TIMEOUT: 5000,
+    AUTO_CALC_DELAY: 1000
+  };
 
-  /** Nearest Neighbor + 2-opt Optimization */
-  function optimize(origin, points) {
-    if (!points.length) return [];
-    
-    // Nearest Neighbor (Greedy)
-    const remaining = [...points];
-    const sorted = [];
-    let curLat = origin.lat;
-    let curLng = origin.lng;
+  // ── State (Privado) ──
+  let state = {
+    locations: [],
+    sorted: [],
+    phase: 'idle',
+    totalKm: 0,
+    autoTimer: null,
+    usedOSRM: false,
+    userCoords: null
+  };
 
-    while (remaining.length > 0) {
-      let bestIdx = 0;
-      let minDist = Infinity;
-      for (let i = 0; i < remaining.length; i++) {
-        const d = haversine(curLat, curLng, remaining[i].lat, remaining[i].lng);
-        // Prioridade pesa na distância (locais prioritários parecem estar "mais perto")
-        const weight = remaining[i].priority ? 0.2 : 1.0; 
-        if (d * weight < minDist) {
-          minDist = d * weight;
-          bestIdx = i;
+  // ── Utilitários Matemáticos ──
+  const GeoUtils = {
+    /** Distância Haversine entre dois pontos (km) */
+    haversine: (lat1, lng1, lat2, lng2) => {
+      if (window.haversineKm) return window.haversineKm(lat1, lng1, lat2, lng2);
+      // Fallback local se o app.js ainda não carregou
+      if (![lat1, lng1, lat2, lng2].every(v => v !== null && !isNaN(v))) return Infinity;
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    },
+
+    /** Extração Robusta de Coordenadas de URLs */
+    extractCoords: (input) => {
+      if (window.extractCoordsFromUrl) return window.extractCoordsFromUrl(input);
+      if (!input || typeof input !== 'string') return null;
+      const raw = input.trim();
+      const patterns = [
+        /(-?\d+\.\d+),(-?\d+\.\d+)/,
+        /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+        /[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/
+      ];
+      for (const regex of patterns) {
+        const match = raw.match(regex);
+        if (match) {
+          const lat = parseFloat(match[1]);
+          const lng = parseFloat(match[2]);
+          if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
         }
       }
-      const next = remaining.splice(bestIdx, 1)[0];
-      sorted.push(next);
-      curLat = next.lat;
-      curLng = next.lng;
-    }
-
-    // 2-opt Heuristic (Simple local search)
-    // Reduz cruzamentos em rotas pequenas/médias
-    for (let i = 0; i < 50; i++) { // Max iterations
-      let improved = false;
-      for (let j = 1; j < sorted.length - 1; j++) {
-        for (let k = j + 1; k < sorted.length; k++) {
-          const d1 = haversine(sorted[j-1].lat, sorted[j-1].lng, sorted[j].lat, sorted[j].lng) +
-                     (sorted[k+1] ? haversine(sorted[k].lat, sorted[k].lng, sorted[k+1].lat, sorted[k+1].lng) : 0);
-          
-          const d2 = haversine(sorted[j-1].lat, sorted[j-1].lng, sorted[k].lat, sorted[k].lng) +
-                     (sorted[k+1] ? haversine(sorted[j].lat, sorted[j].lng, sorted[k+1].lat, sorted[k+1].lng) : 0);
-
-          if (d2 < d1) {
-            // Reverse segment
-            const segment = sorted.slice(j, k + 1).reverse();
-            sorted.splice(j, k - j + 1, ...segment);
-            improved = true;
-          }
-        }
-      }
-      if (!improved) break;
-    }
-
-    return sorted;
-  }
-
-  return {
-    calcular: async function(locations, options = {}) {
-      const { usarGeolocalizacao = true } = options;
-      const result = {
-        rota: [],
-        origem: null,
-        distanciaTotalKm: 0,
-        tempoEstimadoMin: 0,
-        urlGoogleMaps: '',
-        erros: []
-      };
-
-      try {
-        // 1. Obter Origem (GPS)
-        let origin = { lat: -23.5505, lng: -46.6333, nome: 'Sua Localização' }; // Fallback SP
-        if (usarGeolocalizacao && navigator.geolocation) {
-          try {
-            const pos = await new Promise((resolve, reject) => {
-              navigator.geolocation.getCurrentPosition(resolve, reject, {
-                enableHighAccuracy: false, timeout: 5000, maximumAge: 300000
-              });
-            });
-            origin = { lat: pos.coords.latitude, lng: pos.coords.longitude, nome: 'Você' };
-          } catch (e) {
-            console.warn('[RouteOptimizer] Falha GPS:', e.message);
-          }
-        }
-        result.origem = origin;
-
-        // 2. Resolver Coordenadas em Paralelo
-        const resolved = await Promise.allSettled(locations.map(async loc => {
-          const addr = loc.address || loc.link || loc.input || loc.originalInput || '';
-          let lat = loc.lat, lng = loc.lng;
-
-          if (lat == null || lng == null) {
-            const extractor = window.extractCoordsFromUrl || ((u) => null);
-            const extracted = extractor(addr);
-            if (extracted) {
-              lat = extracted.lat;
-              lng = extracted.lng;
-            }
-          }
-
-          if (lat != null && lng != null) {
-            return { ...loc, lat, lng, hasCoords: true };
-          } else {
-            throw new Error(`Não foi possível resolver: ${loc.name || addr}`);
-          }
-        }));
-
-        const validPoints = resolved
-          .filter(r => r.status === 'fulfilled')
-          .map(r => r.value);
-        
-        result.erros = resolved
-          .filter(r => r.status === 'rejected')
-          .map(r => r.reason.message);
-
-        // 3. Otimizar
-        const priorityPoints = validPoints.filter(p => p.priority);
-        const normalPoints   = validPoints.filter(p => !p.priority);
-
-        // Ordena prioridades primeiro, depois normais
-        const optPriority = optimize(origin, priorityPoints);
-        const lastPrio = optPriority.length > 0 ? optPriority[optPriority.length-1] : origin;
-        const optNormal   = optimize(lastPrio, normalPoints);
-
-        result.rota = [...optPriority, ...optNormal];
-
-        // 4. Métricas e URL
-        let prev = origin;
-        let totalKm = 0;
-        result.rota.forEach((pt, i) => {
-          pt.ordem = i + 1;
-          const d = haversine(prev.lat, prev.lng, pt.lat, pt.lng);
-          pt.distanciaAnterior = Math.round(d * 10) / 10;
-          totalKm += d;
-          prev = pt;
-        });
-
-        result.distanciaTotalKm = Math.round(totalKm * 10) / 10;
-        result.tempoEstimadoMin = Math.round(totalKm * 1.5 + result.rota.length * 3); // Média 40km/h + 3min por parada
-
-        // URL Google Maps (Directions)
-        // Format: /dir/Origin/Pt1/Pt2/...
-        const waypoints = [origin, ...result.rota].map(p => `${p.lat},${p.lng}`).join('/');
-        result.urlGoogleMaps = `https://www.google.com/maps/dir/${waypoints}`;
-
-        return result;
-      } catch (err) {
-        console.error('[RouteOptimizer] Erro Fatal:', err);
-        throw err;
-      }
+      return null;
     }
   };
-})();
 
-/**
- * ── UI INTEGRATION ──
- */
-(function() {
-  let currentResult = null;
+  // ── Engine de Otimização ──
+  const RouteEngine = {
+    /** Algoritmo Nearest Neighbor (Guldoso) */
+    solve: (startLat, startLng, points) => {
+      const valid = points.filter(p => p.lat !== null && p.lng !== null);
+      const invalid = points.filter(p => p.lat === null || p.lng === null);
+      
+      const remaining = [...valid];
+      const sorted = [];
+      let currentLat = startLat;
+      let currentLng = startLng;
 
-  window.openAutoRouteModal = async function() {
-    const modal = document.getElementById('autoRouteModal');
-    if (!modal) return;
-    
-    // Fecha modal de escolha se aberto
+      // Se não temos ponto de partida (null ou undefined), usamos o primeiro ponto prioritário ou o primeiro válido
+      if (currentLat == null && remaining.length > 0) {
+        const firstIdx = remaining.findIndex(p => p.priority) !== -1 
+          ? remaining.findIndex(p => p.priority) 
+          : 0;
+        const first = remaining.splice(firstIdx, 1)[0];
+        sorted.push(first);
+        currentLat = first.lat;
+        currentLng = first.lng;
+      }
+
+      while (remaining.length > 0) {
+        let bestIdx = 0;
+        let bestDist = Infinity;
+
+        // Prioriza pontos marcados como prioridade primeiro
+        const hasPriority = remaining.some(p => p.priority);
+        
+        for (let i = 0; i < remaining.length; i++) {
+          if (hasPriority && !remaining[i].priority) continue;
+
+          const d = GeoUtils.haversine(currentLat, currentLng, remaining[i].lat, remaining[i].lng);
+          if (d < bestDist) {
+            bestDist = d;
+            bestIdx = i;
+          }
+        }
+
+        const chosen = remaining.splice(bestIdx, 1)[0];
+        sorted.push(chosen);
+        currentLat = chosen.lat;
+        currentLng = chosen.lng;
+      }
+
+      return [...sorted, ...invalid];
+    }
+  };
+
+  // ── Funções de UI & Eventos ──
+  
+  window.openAutoRouteModal = function() {
     if (window.closeRouteChoiceModal) window.closeRouteChoiceModal();
     
-    modal.classList.add('active');
+    // Obtém locais da agenda global
+    const rawLocs = window.getAutoRouteLocations ? window.getAutoRouteLocations() : [];
     
-    // Reset UI para estado "Calculando"
-    document.getElementById('arLocList').innerHTML = '';
-    document.getElementById('arResultSection').classList.remove('ar-visible');
-    const statusText = document.getElementById('arStatusText');
-    const statusBar = document.getElementById('arStatusBar');
-    if (statusText) statusText.textContent = 'Calculando melhor rota para hoje...';
-    if (statusBar) statusBar.classList.add('ar-visible');
-    
-    const calcBtn = document.getElementById('arCalcBtn');
-    if (calcBtn) {
-      calcBtn.style.display = 'flex';
-      calcBtn.disabled = true;
-      calcBtn.innerHTML = '<div class="ar-spinner"></div> Otimizando...';
-    }
-
-    try {
-      // Pega locais do app.js
-      const rawLocs = window.getAutoRouteLocations ? window.getAutoRouteLocations() : [];
-      if (!rawLocs || rawLocs.length === 0) {
-        throw new Error('Nenhum local encontrado na agenda.');
-      }
-
-      // Executa cálculo silencioso
-      currentResult = await RouteOptimizer.calcular(rawLocs, { usarGeolocalizacao: true });
-
-      // Exibe resultado
-      exibirResultado(currentResult);
+    state.locations = rawLocs.map(loc => {
+      const coords = GeoUtils.extractCoords(loc.originalInput || loc.input || loc.address) || {};
+      const lat = loc.lat ?? loc.coords?.lat ?? coords.lat ?? null;
+      const lng = loc.lng ?? loc.coords?.lng ?? coords.lng ?? null;
       
-    } catch (err) {
-      if (statusText) statusText.textContent = 'Erro: ' + err.message;
-      if (calcBtn) {
-        calcBtn.disabled = false;
-        calcBtn.innerHTML = 'Tentar Novamente';
-        calcBtn.onclick = window.openAutoRouteModal;
-      }
-    }
-  };
+      const shouldAutoSelect = rawLocs.length > 0 && rawLocs.length <= 15;
 
-  function exibirResultado(res) {
-    const list = document.getElementById('arResultList');
-    const resultSection = document.getElementById('arResultSection');
-    const statusBar = document.getElementById('arStatusBar');
-    const statusText = document.getElementById('arStatusText');
-    const calcBtn = document.getElementById('arCalcBtn');
-    const confirmBtn = document.getElementById('arConfirmBtn');
-
-    if (statusBar) statusBar.classList.remove('ar-visible');
-    if (resultSection) resultSection.classList.add('ar-visible');
-    
-    // Métricas
-    const kmEl = document.getElementById('arStatKm');
-    const stopsEl = document.getElementById('arStatStops');
-    const prioEl = document.getElementById('arStatPriority');
-
-    if (kmEl) kmEl.textContent = res.distanciaTotalKm;
-    if (stopsEl) stopsEl.textContent = res.rota.length;
-    if (prioEl) prioEl.textContent = res.rota.filter(p => p.priority).length;
-
-    // Lista Ordenada no aside
-    if (list) {
-      list.innerHTML = res.rota.map(pt => `
-        <div class="ar-result-item">
-          <div class="ar-result-num">${pt.ordem}</div>
-          <div class="ar-result-info">
-            <div class="ar-result-name">${escapeHTML(pt.name)}</div>
-            <div class="ar-result-tags">
-              ${pt.priority ? '<span class="ar-result-tag ar-tag-priority">⚡ PRIORIDADE</span>' : ''}
-              <span class="ar-result-dist">+${pt.distanciaAnterior} km</span>
-            </div>
-          </div>
-        </div>
-      `).join('');
-    }
-
-    // Também limpa a lista principal de seleção já que agora é automático
-    const mainList = document.getElementById('arLocList');
-    if (mainList) mainList.innerHTML = '<div class="ar-empty">Rota calculada com sucesso! Veja o resumo ao lado.</div>';
-
-    // Botões
-    if (calcBtn) {
-      calcBtn.style.display = 'none';
-    }
-    if (confirmBtn) {
-      confirmBtn.style.display = 'flex';
-      confirmBtn.innerHTML = '🚀 Abrir no Google Maps';
-      confirmBtn.onclick = () => {
-        window.open(res.urlGoogleMaps, '_blank');
-        // Injetar no builder do app.js para que o usuário veja os pontos no mapa principal
-        if (window.setBuilderPointsAndGenerate) {
-          window.setBuilderPointsAndGenerate(res.rota);
-        }
-        window.closeAutoRouteModal();
+      return {
+        id: loc.id || `loc-${Math.random().toString(36).substr(2, 9)}`,
+        name: loc.name || 'Local sem nome',
+        address: loc.address || loc.originalInput || '',
+        lat: lat !== null ? Number(lat) : null,
+        lng: lng !== null ? Number(lng) : null,
+        selected: shouldAutoSelect,
+        priority: false,
+        hasCoords: lat !== null,
+        originalInput: loc.originalInput || loc.address || '',
+        distFromUser: null
       };
-    }
-  }
+    });
 
-  function escapeHTML(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
+    state.sorted = [];
+    state.phase = 'idle';
+    state.totalKm = 0;
+    state.usedOSRM = false;
+
+    // UI Initial
+    const driverSection = document.getElementById('arDriverSection');
+    if (driverSection) {
+      const role = window.userRole || '';
+      (role === 'admin' || role === 'co-admin') 
+        ? driverSection.classList.add('ar-visible') 
+        : driverSection.classList.remove('ar-visible');
+      if (role.includes('admin')) populateDriverSelect();
+    }
+
+    renderLocations();
+    setPhase('idle');
+    hideResult();
+    
+    const modal = document.getElementById('autoRouteModal');
+    if (modal) modal.classList.add('active');
+
+    // Tentar obter localização para ordenar a lista inicial
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        const uLat = pos.coords.latitude;
+        const uLng = pos.coords.longitude;
+        state.userCoords = { lat: uLat, lng: uLng };
+        
+        // Calcular distâncias e ordenar
+        state.locations.forEach(loc => {
+          if (loc.hasCoords) {
+            loc.distFromUser = GeoUtils.haversine(uLat, uLng, loc.lat, loc.lng);
+          }
+        });
+
+        // Ordenar: mais próximos primeiro
+        state.locations.sort((a, b) => {
+          if (a.distFromUser === null) return 1;
+          if (b.distFromUser === null) return -1;
+          return a.distFromUser - b.distFromUser;
+        });
+
+        renderLocations();
+      }, err => console.warn('Não foi possível obter GPS para ordenação inicial:', err));
+    }
+
+    scheduleAutoCalc();
+  };
 
   window.closeAutoRouteModal = function() {
     const modal = document.getElementById('autoRouteModal');
     if (modal) modal.classList.remove('active');
+    if (state.autoTimer) clearTimeout(state.autoTimer);
   };
+
+  function populateDriverSelect() {
+    const sel = document.getElementById('arDriverSelect');
+    if (!sel) return;
+    const drivers = window._fleetDrivers || [];
+    sel.innerHTML = drivers.length 
+      ? drivers.map(d => `<option value="${d.uid}">${d.apelido || d.nome || d.email}</option>`).join('')
+      : '<option value="">Nenhum motorista</option>';
+    if (window._selectedDriverUid) sel.value = window._selectedDriverUid;
+  }
+
+  function renderLocations() {
+    const list = document.getElementById('arLocList');
+    const countEl = document.getElementById('arLocCount');
+    if (!list) return;
+
+    const query = (document.getElementById('arSearchInput')?.value || '').toLowerCase();
+    const filtered = state.locations.filter(l => 
+      l.name.toLowerCase().includes(query) || l.address.toLowerCase().includes(query)
+    );
+
+    const selCount = state.locations.filter(l => l.selected).length;
+    if (countEl) countEl.textContent = `${selCount} selecionado${selCount !== 1 ? 's' : ''}`;
+
+    if (filtered.length === 0) {
+      list.innerHTML = `<div class="ar-empty">Nenhum local encontrado</div>`;
+      return;
+    }
+
+    list.innerHTML = filtered.map(loc => {
+      const distLabel = loc.distFromUser !== null 
+        ? `<span class="ar-loc-dist">📍 ${loc.distFromUser < 1 ? (loc.distFromUser * 1000).toFixed(0) + 'm' : loc.distFromUser.toFixed(1) + 'km'}</span>`
+        : '';
+
+      return `
+        <div class="ar-loc-card ${loc.selected ? 'ar-selected' : ''} ${loc.priority ? 'ar-priority' : ''} ${!loc.hasCoords ? 'ar-no-coords' : ''}" 
+             onclick="window._arToggleSelect('${loc.id}')">
+          <div class="ar-loc-check">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
+          <div class="ar-loc-info">
+            <div class="ar-loc-name">${escapeHTML(loc.name)}</div>
+            <div class="ar-loc-addr">${loc.hasCoords ? escapeHTML(loc.address || '📍 Coordenadas OK') : '📡 Pendente de localização'}</div>
+            ${distLabel}
+          </div>
+          <div class="ar-loc-star" onclick="event.stopPropagation(); window._arTogglePriority('${loc.id}')">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function scheduleAutoCalc() {
+    if (state.autoTimer) clearTimeout(state.autoTimer);
+    if (state.locations.filter(l => l.selected).length === 0) return;
+    state.autoTimer = setTimeout(() => window._arCalculate(), CONFIG.AUTO_CALC_DELAY);
+  }
+
+  window._arToggleSelect = function(id) {
+    const loc = state.locations.find(l => String(l.id) === String(id));
+    if (!loc) return;
+    loc.selected = !loc.selected;
+    if (!loc.selected) loc.priority = false;
+    renderLocations();
+    hideResult();
+    scheduleAutoCalc();
+  };
+
+  window._arTogglePriority = function(id) {
+    const loc = state.locations.find(l => String(l.id) === String(id));
+    if (!loc) return;
+    loc.selected = true;
+    loc.priority = !loc.priority;
+    renderLocations();
+    hideResult();
+    scheduleAutoCalc();
+  };
+
+  window._arSelectAll = () => { state.locations.forEach(l => l.selected = true); renderLocations(); hideResult(); scheduleAutoCalc(); };
+  window._arDeselectAll = () => { state.locations.forEach(l => { l.selected = false; l.priority = false; }); renderLocations(); hideResult(); };
+  window._arFilterLocs = () => renderLocations();
+
+  function setPhase(phase, text) {
+    state.phase = phase;
+    const bar = document.getElementById('arStatusBar');
+    const statusText = document.getElementById('arStatusText');
+    const spinner = document.getElementById('arSpinner');
+    const check = document.getElementById('arStatusCheck');
+    
+    if (!bar) return;
+    if (phase === 'idle') { bar.classList.remove('ar-visible'); return; }
+    
+    bar.classList.add('ar-visible');
+    if (statusText) statusText.textContent = text || '';
+    
+    if (phase === 'ready') {
+      if (spinner) spinner.style.display = 'none';
+      if (check) check.style.display = 'flex';
+    } else {
+      if (spinner) spinner.style.display = 'block';
+      if (check) check.style.display = 'none';
+    }
+  }
+
+  function hideResult() {
+    const res = document.getElementById('arResultSection');
+    if (res) res.classList.remove('ar-visible');
+    const confirmBtn = document.getElementById('arConfirmBtn');
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    const calcBtn = document.getElementById('arCalcBtn');
+    if (calcBtn) {
+      calcBtn.style.display = 'flex';
+      calcBtn.disabled = false;
+      calcBtn.innerHTML = '🧠 Calcular Melhor Rota';
+    }
+  }
+
+  // ── CORE: CÁLCULO DA ROTA ──
+  window._arCalculate = async function() {
+    const selected = state.locations.filter(l => l.selected);
+    if (selected.length === 0) return;
+
+    const calcBtn = document.getElementById('arCalcBtn');
+    if (calcBtn) {
+      calcBtn.disabled = true;
+      calcBtn.innerHTML = '<div class="ar-spinner" style="width:14px;height:14px;border-width:2px;"></div> Calculando...';
+    }
+
+    try {
+      // 1. Obter Localização do Usuário
+      setPhase('locating', 'Obtendo GPS...');
+      let uLat = state.userCoords?.lat ?? null;
+      let uLng = state.userCoords?.lng ?? null;
+
+      try {
+        if (navigator.geolocation) {
+          const pos = await new Promise((res, rej) => {
+            navigator.geolocation.getCurrentPosition(res, rej, { 
+              enableHighAccuracy: true, 
+              timeout: 4000 
+            });
+          });
+          uLat = pos.coords.latitude;
+          uLng = pos.coords.longitude;
+          state.userCoords = { lat: uLat, lng: uLng }; // Update cache
+        }
+      } catch (err) {
+        console.warn('Geolocation imediata falhou, usando cache ou fallback:', err);
+        // Já inicializamos com state.userCoords, então apenas continua
+        if (uLat === null && window.userCoords) {
+           uLat = window.userCoords.lat;
+           uLng = window.userCoords.lng;
+        }
+      }
+
+      // 2. Extração Robusta de Coordenadas (Híbrida: Local + API)
+      setPhase('resolving', 'Processando localizações...');
+      for (const loc of selected) {
+        if (!loc.hasCoords) {
+          // Tenta resolver usando a nova Bridge API do app.js
+          const resolved = window.resolveLocationCoords ? await window.resolveLocationCoords(loc.originalInput) : GeoUtils.extractCoords(loc.originalInput);
+          if (resolved) { 
+            loc.lat = resolved.lat; 
+            loc.lng = resolved.lng; 
+            loc.hasCoords = true; 
+          }
+        }
+      }
+
+      // 3. Otimização (Apenas Frontend para estabilidade total conforme solicitado)
+      // O usuário pediu "somente no frontend" para evitar erros locais de servidor.
+      setPhase('resolving', 'Ordenando paradas...');
+      
+      // Simulação de processamento para UX
+      await new Promise(r => setTimeout(r, 600));
+
+      const sorted = RouteEngine.solve(uLat, uLng, selected);
+      
+      // Calcular distâncias acumuladas
+      let totalKm = 0;
+      let prevLat = uLat;
+      let prevLng = uLng;
+
+      const finalSorted = sorted.map(pt => {
+        let d = null;
+        if (pt.lat !== null && prevLat !== null) {
+          d = GeoUtils.haversine(prevLat, prevLng, pt.lat, pt.lng);
+          totalKm += d;
+          prevLat = pt.lat;
+          prevLng = pt.lng;
+        }
+        return { ...pt, distFromPrevKm: d };
+      });
+
+      state.sorted = finalSorted;
+      state.totalKm = totalKm;
+      state.usedOSRM = false;
+
+      setPhase('ready', 'Rota otimizada!');
+      renderResult();
+      
+      if (calcBtn) calcBtn.style.display = 'none';
+      const confirmBtn = document.getElementById('arConfirmBtn');
+      if (confirmBtn) confirmBtn.style.display = 'flex';
+
+    } catch (err) {
+      console.error('Erro no Auto-Route:', err);
+      window.showToast('Erro ao calcular rota.', 'error');
+      setPhase('idle');
+      if (calcBtn) {
+        calcBtn.disabled = false;
+        calcBtn.innerHTML = '🧠 Calcular Melhor Rota';
+      }
+    }
+  };
+
+  function renderResult() {
+    const listEl = document.getElementById('arResultList');
+    if (!listEl) return;
+
+    document.getElementById('arStatKm').textContent = state.totalKm.toFixed(1);
+    document.getElementById('arStatStops').textContent = state.sorted.length;
+    document.getElementById('arStatPriority').textContent = state.sorted.filter(p => p.priority).length;
+
+    listEl.innerHTML = state.sorted.map((pt, i) => `
+      <div class="ar-result-item ${pt.priority ? 'ar-result-priority' : ''} ${!pt.hasCoords ? 'ar-result-nogps' : ''}">
+        <div class="ar-result-badge">${i + 1}</div>
+        <div class="ar-result-info">
+          <div class="ar-result-name">${escapeHTML(pt.name)}</div>
+          <div class="ar-result-tags">
+            ${pt.priority ? '<span class="ar-result-tag ar-tag-priority">⚡ PRIORIDADE</span>' : ''}
+            ${!pt.hasCoords ? '<span class="ar-result-tag ar-tag-nogps">📡 Sem GPS</span>' : ''}
+            ${pt.distFromPrevKm !== null ? `<span class="ar-result-dist">${pt.distFromPrevKm < 1 ? (pt.distFromPrevKm * 1000).toFixed(0) + ' m' : pt.distFromPrevKm.toFixed(1) + ' km'}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    const res = document.getElementById('arResultSection');
+    if (res) res.classList.add('ar-visible');
+  }
+
+  window._arConfirmRoute = function() {
+    if (state.sorted.length === 0) return;
+    setPhase('ready', 'Enviando para a agenda...');
+    
+    // Configura motorista se admin
+    const role = window.userRole || '';
+    if (role.includes('admin')) {
+      const sel = document.getElementById('arDriverSelect');
+      if (sel?.value) {
+        window._selectedDriverUid = sel.value;
+        if (window.selectBuilderDriver) window.selectBuilderDriver(sel.value);
+      }
+    }
+
+    const points = state.sorted.map(pt => ({
+      id: pt.id,
+      name: pt.name,
+      lat: pt.lat,
+      lng: pt.lng,
+      originalInput: pt.originalInput || pt.address,
+      input: pt.originalInput || pt.address
+    }));
+
+    if (window.setBuilderPointsAndGenerate) {
+      window.setBuilderPointsAndGenerate(points);
+      setTimeout(() => window.closeAutoRouteModal(), 500);
+    } else {
+      window.showToast('Erro ao injetar rota no sistema principal.', 'error');
+    }
+  };
+
+  function escapeHTML(str) {
+    if (!str) return '';
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
 
 })();

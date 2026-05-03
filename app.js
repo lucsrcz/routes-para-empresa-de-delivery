@@ -13,7 +13,7 @@ const storage = getStorage(app);
 let currentUser = null;
 let allLocations = [];
 let builderSelectedPoints = [];
-let userCoords = null;
+window.userCoords = null;
 let driverMissionsUnsubscribe = null;
 let deliveryPhotoBuffer = null;
 let currentMissionIdForCompletion = null;
@@ -97,20 +97,78 @@ function escapeHTML(str) {
 /**
  * Utilitário Sênior: Extrai coordenadas de uma URL do Google Maps (fallback client-side).
  */
-window.extractCoordsFromUrl = function(url) {
-  if (!url || typeof url !== 'string') return null;
+/**
+ * Utilitário Sênior: Extração Robusta de Coordenadas.
+ * Suporta: lat,lng puro, URLs Google Maps (@lat,lng, !3d!4d, q=lat,lng),
+ * e links com graus minutos segundos (DMS).
+ */
+window.extractCoordsFromUrl = function(input) {
+  if (!input || typeof input !== 'string') return null;
+  const raw = input.trim();
+
+  // 1. Padrões de Coordenadas Decimais (Mais comum)
   const patterns = [
-    /@(-?\d+\.\d+),(-?\d+\.\d+)/,
-    /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,
-    /[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/,
-    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/
+    /@(-?\d+\.\d+),(-?\d+\.\d+)/,          // @lat,lng
+    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/,     // !3d...!4d
+    /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,    // q=lat,lng
+    /[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/,   // ll=lat,lng
+    /^(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)$/    // lat,lng puro
   ];
+
   for (const p of patterns) {
-    const match = url.match(p);
-    if (match) return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+    const m = raw.match(p);
+    if (m) {
+      const lat = parseFloat(m[1]);
+      const lng = parseFloat(m[2]);
+      if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
+    }
   }
+
+  // 2. Suporte para DMS (Ex: 16°42'S, 49°15'W)
+  const dmsMatch = raw.match(/(\d+)°(\d+)'?([NS]),?\s*(\d+)°(\d+)'?([EW])/i);
+  if (dmsMatch) {
+    const lat = (parseInt(dmsMatch[1]) + parseInt(dmsMatch[2])/60) * (dmsMatch[3].toUpperCase() === 'S' ? -1 : 1);
+    const lng = (parseInt(dmsMatch[4]) + parseInt(dmsMatch[5])/60) * (dmsMatch[6].toUpperCase() === 'W' ? -1 : 1);
+    return { lat, lng };
+  }
+
   return null;
 };
+
+/**
+ * Utilitário Sênior: Distância Haversine entre dois pontos (km).
+ */
+window.haversineKm = function(lat1, lng1, lat2, lng2) {
+  if ([lat1, lng1, lat2, lng2].some(v => v === null || isNaN(v))) return Infinity;
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+/**
+ * Utilitário Sênior: Formata distância para exibição amigável.
+ */
+window.getDistanceLabel = function(km) {
+  if (km === Infinity || km === null || isNaN(km)) return "";
+  if (km < 1) return (km * 1000).toFixed(0) + " m";
+  return km.toFixed(1) + " km";
+};
+
+/**
+ * Utilitário Sênior: Calcula distância de um local até o usuário atual.
+ */
+window.calcDistanceToUser = function(loc) {
+  if (!window.userCoords || !loc) return null;
+  const lat = loc.lat ?? loc.coords?.lat;
+  const lng = loc.lng ?? loc.coords?.lng;
+  if (lat == null || lng == null) return null;
+  return window.haversineKm(window.userCoords.lat, window.userCoords.lng, lat, lng);
+};
+
 
 /**
  * Utilitário Sênior: Formata um local para uso em URLs do Google Maps (Directions/Search).
@@ -208,8 +266,8 @@ window.toggleAppTheme = function() {
 
 if ('geolocation' in navigator) {
   navigator.geolocation.getCurrentPosition(async p => {
-    userCoords = { lat: p.coords.latitude, lng: p.coords.longitude };
-    updateWeather(userCoords.lat, userCoords.lng);
+    window.userCoords = { lat: p.coords.latitude, lng: p.coords.longitude };
+    updateWeather(window.userCoords.lat, window.userCoords.lng);
   }, () => console.log("Sem acesso ao GPS"));
 }
 
@@ -2537,49 +2595,86 @@ window.renderBuilderSequence = function() {
 
 // ── Bridge API for auto-route.js ──
 window.getAutoRouteLocations = function() {
-  return allLocations;
+  const searchInput = document.getElementById('searchAgendaInput');
+  const term = (searchInput ? searchInput.value : '').trim().toLowerCase();
+  
+  if (term && allLocations) {
+    return allLocations.filter(loc => 
+      (loc.name || '').toLowerCase().includes(term) ||
+      (loc.originalInput || '').toLowerCase().includes(term)
+    );
+  }
+  return allLocations || [];
 };
 
 /**
- * Resolve coordenadas de um link/endereço.
- * 1) Tenta extração client-side (regex em URLs do Google Maps)
- * 2) Fallback: chama o backend /api/resolve
- * Retorna { lat, lng, name } ou null se não conseguir resolver.
+ * Utilitário Sênior: Resolve links curtos (maps.app.goo.gl, goo.gl) via redirect.
+ */
+window.resolveShortLink = async function(url) {
+  if (!url || (!url.includes('goo.gl') && !url.includes('maps.app.goo.gl'))) return url;
+  try {
+    // Nota: Pode falhar por CORS no browser puro dependendo das políticas da Google.
+    // Mas incluímos conforme solicitado para resiliência máxima.
+    const res = await fetch(url, { method: 'GET', redirect: 'follow' });
+    return res.url || url;
+  } catch (e) {
+    console.warn("Auto-route: Não foi possível resolver shortlink via fetch (CORS?):", e);
+    return url;
+  }
+};
+
+/**
+ * Resolve coordenadas de um link/endereço com estratégia híbrida.
+ * 1) Tenta extração local rápida (Regex).
+ * 2) Se for link, tenta expandir link curto e extrair novamente.
+ * 3) Fallback final: chama o backend /api/resolve.
  */
 window.resolveLocationCoords = async function(input) {
   if (!input) return null;
 
-  // 1. Client-side extraction
-  const clientCoords = window.extractCoordsFromUrl(input);
-  if (clientCoords) {
-    return { lat: clientCoords.lat, lng: clientCoords.lng, name: null };
-  }
+  // 1. Extração local imediata (Alta performance)
+  let coords = window.extractCoordsFromUrl(input);
+  if (coords) return { ...coords, name: null };
 
-  // 2. Backend resolution
+  // 2. Se for link, tenta expandir e extrair
   if (input.includes('http')) {
     try {
-      const idToken = await auth.currentUser.getIdToken();
+      const expandedUrl = await window.resolveShortLink(input);
+      coords = window.extractCoordsFromUrl(expandedUrl);
+      if (coords) return { ...coords, name: null };
+    } catch (e) {
+      console.warn("Auto-route: Erro na expansão/extração local:", e);
+    }
+
+    // 3. Fallback: Backend (Pesado, mas garantido)
+    try {
+      const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
       const res = await fetch(`${CONFIG.apiUrl}/api/resolve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
+          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
         },
         body: JSON.stringify({ url: input })
       });
       if (res.ok) {
         const data = await res.json();
         if (data.lat && data.lng) {
-          return { lat: data.lat, lng: data.lng, name: data.name || null };
+          return { 
+            lat: Number(data.lat), 
+            lng: Number(data.lng), 
+            name: data.name || null 
+          };
         }
       }
     } catch (e) {
-      console.warn("Auto-route: falha ao resolver link via backend", e);
+      console.warn("Auto-route: falha no fallback do servidor", e);
     }
   }
 
   return null;
 };
+
 
 window.setBuilderPointsAndGenerate = function(points) {
   builderSelectedPoints = points;

@@ -49,7 +49,9 @@ getRedirectResult(auth).then(async (result) => {
     sessionStorage.removeItem('inviteCode');
     sessionStorage.removeItem('nomeInput');
     
-    window.location.href = "app.html";
+    setTimeout(() => {
+      window.location.href = "app.html";
+    }, 800);
   } else {
     sessionStorage.removeItem('googleLoginPending');
   }
@@ -99,7 +101,10 @@ onAuthStateChanged(auth, async (user) => {
         console.warn('Erro ao processar convite para user logado:', e);
       }
     }
-    window.location.href = "app.html";
+    
+    setTimeout(() => {
+      window.location.href = "app.html";
+    }, 800);
   }
 });
 
