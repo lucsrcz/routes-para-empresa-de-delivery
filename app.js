@@ -566,7 +566,8 @@ async function applyRoleUI() {
     if (window.companyId) {
       const snap = await getDoc(doc(db, 'companies', window.companyId));
       if (snap.exists()) {
-        const nome = snap.data().name || snap.data().nome || 'Prodesivo';
+        let nome = snap.data().name || snap.data().nome || 'ROUTES';
+        if (nome === 'Prodesivo') nome = 'ROUTES';
         const navCompanyName = document.getElementById('navCompanyName');
         const profileCompanyName = document.getElementById('profileCompanyName');
         if (navCompanyName) navCompanyName.textContent = nome;
