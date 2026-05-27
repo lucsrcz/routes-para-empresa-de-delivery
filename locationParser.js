@@ -171,11 +171,16 @@ async function parseLocation(input, fetchName = true) {
   }
 
   // ── 2. Input deve ser URL a partir daqui ───────────────────────────────
-  if (!raw.startsWith('http')) {
-    throw new Error(`Formato não reconhecido: "${raw}"`);
-  }
-
   let url = raw;
+  if (!url.startsWith('http')) {
+    // Tenta encontrar um link http no meio do texto
+    const urlMatch = raw.match(/https?:\/\/[^\s]+/);
+    if (urlMatch) {
+      url = urlMatch[0];
+    } else {
+      throw new Error(`Formato não reconhecido: "${raw}"`);
+    }
+  }
 
   // ── 3. WhatsApp localização ──────────────────────────────────────────────
   //    Deve ser testado ANTES de resolver redirect, pois a URL já tem as coords
