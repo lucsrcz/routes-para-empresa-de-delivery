@@ -2041,31 +2041,57 @@ window.saveLocation = async function() {
       resolvedData.lat = clientCoords.lat;
       resolvedData.lng = clientCoords.lng;
     }
+  } else {
+    // É um texto, CEP ou endereço livre. Tentar geocodificar usando Nominatim API (gratuito)
+    try {
+      btn.textContent = 'Buscando endereço...';
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(linkInput)}&format=json&addressdetails=1&limit=1`, {
+        headers: { 'Accept-Language': 'pt-BR' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          resolvedData.lat = parseFloat(data[0].lat);
+          resolvedData.lng = parseFloat(data[0].lon);
+          if (!nameInput) {
+            // Se o usuário não digitou um nome, usa o nome do local ou rua retornado
+            resolvedData.name = data[0].display_name.split(',')[0];
+          }
+        } else {
+          showToast("Endereço ou CEP não encontrado. Tente ser mais específico.", "warning");
+        }
+      }
+    } catch(err) {
+      console.warn("Falha na busca pelo Nominatim:", err);
+    }
   }
 
-  // Tentar resolver via backend
-  try {
-    const idToken = await auth.currentUser.getIdToken();
-    const res = await fetch(`${CONFIG.apiUrl}/api/resolve`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`
-      },
-      body: JSON.stringify({ url: linkInput })
-    });
-    
-    if(res.ok) {
-      const data = await res.json();
-      resolvedData = {
-        lat: (data.lat !== undefined && data.lat !== null) ? data.lat : resolvedData.lat,
-        lng: (data.lng !== undefined && data.lng !== null) ? data.lng : resolvedData.lng,
-        expandedUrl: data.expandedUrl || "",
-        name: nameInput || data.name || "Local Adicionado"
-      };
+  // Tentar resolver via backend apenas se ainda não achou as coordenadas ou se é um link complexo
+  if (!resolvedData.lat || !resolvedData.lng || linkInput.includes('http')) {
+    try {
+      btn.textContent = 'Aguarde...';
+      const idToken = await auth.currentUser.getIdToken();
+      const res = await fetch(`${CONFIG.apiUrl}/api/resolve`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ url: linkInput })
+      });
+      
+      if(res.ok) {
+        const data = await res.json();
+        resolvedData = {
+          lat: (data.lat !== undefined && data.lat !== null) ? data.lat : resolvedData.lat,
+          lng: (data.lng !== undefined && data.lng !== null) ? data.lng : resolvedData.lng,
+          expandedUrl: data.expandedUrl || "",
+          name: nameInput || resolvedData.name || data.name || "Local Adicionado"
+        };
+      }
+    } catch(e) {
+      console.warn("Backend offline ou erro na resolução.", e.message);
     }
-  } catch(e) {
-    console.warn("Backend offline ou erro na resolução.", e.message);
   }
 
   try {
