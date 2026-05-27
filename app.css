@@ -93,17 +93,17 @@ body {
 
 .nav{
   background: linear-gradient(135deg, #0F3E6F 0%, #1D5E9E 55%, #1A79C4 100%);
-  height:56px;min-height:56px;
+  height:64px;min-height:64px;
   display:flex;align-items:center;justify-content:space-between;
   padding:0 18px;
   border-bottom:3px solid var(--pr-cyan);
   flex-shrink:0;gap:8px;
   box-shadow:0 2px 16px rgba(15,62,111,0.35);
 }
-.nav-brand{display:flex;align-items:center;gap:12px;flex-shrink:0;}
-.nav-logo{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;}
-.nav-logo svg{width:24px;height:24px;}
-.nav-logo img{width:100%;height:100%;object-fit:contain;border-radius:9px;}
+.nav-brand{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.nav-logo{width:52px;height:52px;border-radius:10px;background:transparent;border:none;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.25));}
+.nav-logo svg{width:32px;height:32px;}
+.nav-logo img{width:100%;height:100%;object-fit:contain;border-radius:0;}
 .nav-brand-col{display:flex;flex-direction:column;gap:0px;}
 .nav-title{color:#fff;font-size:15px;font-weight:800;letter-spacing:1.5px;white-space:nowrap;text-transform:uppercase;line-height:1.1;}
 .nav-subtitle{color:var(--pr-cyan);font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;opacity:0.9;}
