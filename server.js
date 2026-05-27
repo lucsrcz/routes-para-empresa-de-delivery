@@ -299,6 +299,7 @@ app.post('/api/resolve', authenticate, async (req, res) => {
       name: customName || result.name || 'Local sem nome',
       source: result.source,
       originalInput: url.trim(),
+      expandedUrl: result.expandedUrl || ''
     });
   } catch (err) {
     console.error('[/api/resolve] Erro:', err.message);

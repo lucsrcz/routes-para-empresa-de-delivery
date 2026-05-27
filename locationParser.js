@@ -166,7 +166,7 @@ async function parseLocation(input, fetchName = true) {
     const coords = validateCoords(rawMatch[1], rawMatch[2]);
     if (coords) {
       const name = fetchName ? await reverseGeocode(coords.lat, coords.lng) : null;
-      return { ...coords, name, source: 'latLng' };
+      return { ...coords, name, source: 'latLng', expandedUrl: url };
     }
   }
 
@@ -185,7 +185,7 @@ async function parseLocation(input, fetchName = true) {
       const coords = validateCoords(m[1], m[2]);
       if (coords) {
         const name = fetchName ? await reverseGeocode(coords.lat, coords.lng) : null;
-        return { ...coords, name, source: 'whatsapp' };
+        return { ...coords, name, source: 'whatsapp', expandedUrl: url };
       }
     }
   }
@@ -203,7 +203,7 @@ async function parseLocation(input, fetchName = true) {
     const coords = validateCoords(m[1], m[2]);
     if (coords) {
       const name = fetchName ? await reverseGeocode(coords.lat, coords.lng) : null;
-      return { ...coords, name, source: 'googleMaps' };
+      return { ...coords, name, source: 'googleMaps', expandedUrl: url };
     }
   }
 
@@ -213,7 +213,7 @@ async function parseLocation(input, fetchName = true) {
     const coords = validateCoords(m[1], m[2]);
     if (coords) {
       const name = fetchName ? await reverseGeocode(coords.lat, coords.lng) : null;
-      return { ...coords, name, source: 'googleMaps' };
+      return { ...coords, name, source: 'googleMaps', expandedUrl: url };
     }
   }
 
@@ -223,7 +223,7 @@ async function parseLocation(input, fetchName = true) {
     const coords = validateCoords(m[1], m[2]);
     if (coords) {
       const name = fetchName ? await reverseGeocode(coords.lat, coords.lng) : null;
-      return { ...coords, name, source: 'googleMaps' };
+      return { ...coords, name, source: 'googleMaps', expandedUrl: url };
     }
   }
 
@@ -233,7 +233,7 @@ async function parseLocation(input, fetchName = true) {
     const coords = validateCoords(m[1], m[2]);
     if (coords) {
       const name = fetchName ? await reverseGeocode(coords.lat, coords.lng) : null;
-      return { ...coords, name, source: 'googleMaps' };
+      return { ...coords, name, source: 'googleMaps', expandedUrl: url };
     }
   }
 
@@ -243,14 +243,14 @@ async function parseLocation(input, fetchName = true) {
   m = url.match(PATTERNS.placeId);
   if (m) {
     const result = await geocodeByPlaceId(m[1]);
-    return { ...result, source: 'placeId' };
+    return { ...result, source: 'placeId', expandedUrl: url };
   }
 
   // (f) Nome do lugar no path (/maps/place/Torre+de+TV/...)
   m = url.match(PATTERNS.placeName);
   if (m) {
     const result = await geocodeByName(m[1]);
-    return { ...result, source: 'placeName' };
+    return { ...result, source: 'placeName', expandedUrl: url };
   }
 
   throw new Error(`Não foi possível extrair coordenadas de: "${raw}"`);
