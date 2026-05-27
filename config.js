@@ -24,7 +24,7 @@ const CONFIG = {
     !window.location.hostname
   )
     ? `http://${window.location.hostname || "localhost"}:3001`
-    : "https://seu-backend-producao.com", // TODO: Atualizar após deploy
+    : "https://routes-para-empresa-de-delivery.onrender.com",
     
   version: "1.2.0-senior"
 };

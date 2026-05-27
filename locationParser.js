@@ -166,7 +166,7 @@ async function parseLocation(input, fetchName = true) {
     const coords = validateCoords(rawMatch[1], rawMatch[2]);
     if (coords) {
       const name = fetchName ? await reverseGeocode(coords.lat, coords.lng) : null;
-      return { ...coords, name, source: 'latLng', expandedUrl: url };
+      return { ...coords, name, source: 'latLng', expandedUrl: raw };
     }
   }
 
