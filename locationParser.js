@@ -258,6 +258,17 @@ async function parseLocation(input, fetchName = true) {
     return { ...result, source: 'placeName', expandedUrl: url };
   }
 
+  // (g) Texto no parâmetro ?q= (ex: ?q=Rua+do+Ouvidor) quando não for lat/lng
+  m = url.match(/[?&]q=([^&]+)/);
+  if (m) {
+    const decodedName = decodeURIComponent(m[1].replace(/\+/g, ' '));
+    // Se não for coordenada (que já teria sido pego lá em cima)
+    if (!/^-?\d+\.?\d*,-?\d+\.?\d*$/.test(decodedName)) {
+      const result = await geocodeByName(decodedName);
+      return { ...result, source: 'qParam', expandedUrl: url };
+    }
+  }
+
   throw new Error(`Não foi possível extrair coordenadas de: "${raw}"`);
 }
 
